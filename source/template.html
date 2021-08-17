@@ -23,8 +23,13 @@
 
 <div class="hint default-hint-text-size" dir="auto">{{{HINT}}}</div>
 
+<div class="wrapper">
+    <div id='table-holder'>
+    </div>
+</div>
+
 <!-- If the field is marked read only, then only show the input box if there is a current answer. -->
-{{#READONLY}}
+<!-- {{#READONLY}}
     <input 
         type="text" 
         value="{{CURRENT_ANSWER}}" 
@@ -34,10 +39,10 @@
         readonly
         {{^CURRENT_ANSWER}}style="display:none"{{/CURRENT_ANSWER}}
     />
-{{/READONLY}}
+{{/READONLY}} -->
 
 <!-- if the field is not marked read only, show the input box always. -->
-{{^READONLY}}
+<!-- {{^READONLY}}
 <input 
     type="text" 
     value="{{CURRENT_ANSWER}}" 
@@ -51,4 +56,4 @@
     {{/QUESTION_PLACEHOLDER_LABEL}}
     dir="auto"
 />
-{{/READONLY}}
+{{/READONLY}} -->
