@@ -45,19 +45,26 @@ th {
 
 td {
     text-align: center;
+    padding: 5px;
+}
+
+input {
+    text-align: center;
+    padding: 5px;
 }
 
 tr:nth-child(even) {
-    background-color: #eee;
+    background-color: lightgray;
 }
 
 th[scope="col"] {
-    background-color: #696969;
-    color: #fff;
+    background-color: #047CC2;
+    color: white;
 }
 
 th[scope="row"] {
-    background-color: #d7d9f2;
+    background-color: #98c484;
+    color: white;
 }
 
 caption {

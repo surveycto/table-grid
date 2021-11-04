@@ -6,14 +6,87 @@ var isAndroid = (document.body.className.indexOf('android-collect') >= 0)
 var isIOS = (document.body.className.indexOf('ios-collect') >= 0)
 
 // Get parameters
-var numberColumns = getPluginParameter('x')
-var numberRows = getPluginParameter('y')
-var columnHeaders = getPluginParameter('x_label')
-var rowHeaders = getPluginParameter('y_label')
+var numberColumns = getPluginParameter('columns')
+var numberRows = getPluginParameter('rows')
+var columnHeaders = getPluginParameter('column_headers')
+var rowHeaders = getPluginParameter('row_headers')
+var field_type = getPluginParameter('data_type')
+
+var prevAnswer = fieldProperties.CURRENT_ANSWER
 
 var div = document.getElementById('table-holder') // General div to house the grid.
 
-// // Find the input element
+if (prevAnswer != null) {
+  prevAnswerArray = prevAnswer.split('|')
+}
+
+// New changes for table-grid
+
+// Default field type is text otherwise its the type entered in parameter. 
+if (field_type == null) {
+  field_type = 'text'
+}
+numberRows = parseInt(numberRows) + 1
+numberColumns = parseInt(numberColumns)
+var rowHeadersArray = rowHeaders.split('|')
+var columnHeadersArray = columnHeaders.split('|')
+
+var table = '<table id="gridTable" class="gridTable">'
+for (var i = 0; i < numberRows; i++) {
+  if (i > 0) {
+    table += '<tr>'
+    var rowHeader = rowHeadersArray[i - 1]
+    table += '<th scope="row">' + rowHeader + '</th>'
+  } else {
+    table += '<th scope="col">' + '' + '</th>'
+  }
+  for (var j = 0; j < numberColumns; j++) {
+    if (i === 0) {
+      // table += '<thead>'
+      var headerText = columnHeadersArray[j]
+      var hId = '<th scope="col">' + headerText + '</th>'
+      table += hId
+    } else {
+      var td = '<td contenteditable="true" class="cell"><input class = "input" type = "' + field_type + '" placeholder="Edit here">' 
+      table += td
+      if (prevAnswer != null) {
+        var temp = prevAnswerArray[j]
+        table += temp
+      }
+      table += '</input></td>'
+    }
+  }
+  table += '</tr>'
+  if (i === 0) {
+    table += '</thead>'
+  }
+}
+table += '</table>'
+div.innerHTML = table // Add the row to main container.
+
+var getTable = document.getElementById('gridTable')
+var cells = getTable.getElementsByTagName('td')
+var cells1 = document.querySelectorAll('.cell')
+var cellsLength = cells.length
+// var cellValues = ''
+
+for (var p = 0; p < cellsLength; p++) {
+  var cell = cells1[p]
+  cell.addEventListener('input', (e) => {
+    console.log(getValues())
+    setAnswer(getValues())
+  })
+}
+
+function getValues () {
+  var cellValues = ''
+  for (var q = 0; q < cellsLength; q++) {
+    cellValues = cellValues + cells[q].innerHTML + '|'
+  }
+  return cellValues
+}
+
+// Find the input element
 // var input = document.getElementById('text-field')
 
 // // Restricts input for the given textbox to the given inputFilter.
@@ -121,68 +194,3 @@ var div = document.getElementById('table-holder') // General div to house the gr
 // } else if (fieldProperties.APPEARANCE.includes('numbers') === true) {
 //   input.type = 'number'
 // }
-
-// New changes for table-grid
-
-numberRows = parseInt(numberRows) + 1
-numberColumns = parseInt(numberColumns)
-var rowHeadersArray = rowHeaders.split('|')
-var columnHeadersArray = columnHeaders.split('|')
-
-var table = '<table id="gridTable" class="gridTable">'
-for (var i = 0; i < numberRows; i++) {
-  if (i > 0) {
-    table += '<tr>'
-    var rowHeader = rowHeadersArray[i - 1]
-    table += '<th scope="row">' + rowHeader + '</th>'
-  } else {
-    table += '<th scope="col">' + 'ROW 1' + '</th>'
-  }
-  for (var j = 0; j < numberColumns; j++) {
-    if (i === 0) {
-      // table += '<thead>'
-      var headerText = columnHeadersArray[j]
-      var hId = '<th scope="col">' + headerText + '</th>'
-      table += hId
-    } else {
-      var td = '<td contenteditable="true" class="cell">'
-      table += td
-      table += 'Cell ' + j
-      table += '</td>'
-    }
-  }
-  table += '</tr>'
-  if (i === 0) {
-    table += '</thead>'
-  }
-}
-table += '</table>'
-div.innerHTML = table // Add the row to main container.
-
-var getTable = document.getElementById('gridTable')
-var cells = getTable.getElementsByTagName('td')
-var cells1 = document.querySelectorAll('.cell')
-var cellsLength = cells.length
-// var cellValues = ''
-
-for (var p = 0; p < cellsLength; p++) {
-  var cell = cells1[p]
-  cell.addEventListener('input', (e) => {
-    console.log(getValues())
-    setAnswer(getValues())
-  })
-  // cell.addEventListener('input', cell, false)
-}
-
-function getValues () {
-  var cellValues = ''
-  for (var q = 0; q < cellsLength; q++) {
-    cellValues = cellValues + cells[q].innerHTML + '|'
-    // cellValues.push(cells[q])
-    // cells[q].onclick = function () {
-    //   console.log(this.innerHTML)
-    // }
-  }
-  // console.log(cellValues)
-  return cellValues
-}

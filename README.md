@@ -1,25 +1,24 @@
-# Baseline text field
+# Table grid
 
-![Default appearance for the 'baseline-text' field plug-in](extras/preview.jpg)
+![Default appearance for the 'table-grid' field plug-in](extras/preview.jpg)
 
 ## Description
 
-A simple replacement for the default *text* field, plus a few improvements (see below). You can either download and use this as-is, or you can use it as a starting template when creating your own field plug-in for a *text* field.
+This field plug-in allows for spreadsheet like table data input. Instead of a repeat group using the 'table' appearance option, a table with columns adjacent to one another (unlike what is allowed with fields normally) is displayed.
 
 [![Download now](extras/download-button.png)](https://github.com/surveycto/baseline-text/raw/master/baseline-text.fieldplugin.zip)
 
+This plug-in is currently under beta. If you you find a problem with the field plug-in, please email support@surveycto.com.
+
 ### Features
 
-In addition to supporting the default SurveyCTO features listed below, this field plug-in offers the following expanded functionality:
-
-1. **Support for HTML in field references** <br>
-    If you reference another field's value in either the field *label* or field *hint*, and that referenced value contains HTML, the HTML will be correctly rendered.
-1. **Better support for RTL languages** <br>
-    The field label, hint, and input will now be justified to the right when they contain an RTL language.
+1. Define number of rows and columns in the table.
+1. Define the labels for the rows and columns in the table.
 
 ### Data format
 
 This field plug-in requires the `text` field type.
+The data is stored in a space-sepa
 
 ## How to use
 
