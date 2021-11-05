@@ -18,24 +18,14 @@ This plug-in is currently under beta. If you you find a problem with the field p
 ### Data format
 
 This field plug-in requires the `text` field type.
-The data is stored in a space-sepa
+The data is stored in a pipe separated list of items such as: 
+`1|2|3|4|5|6|7|8|9|0|`
+
 
 ## How to use
 
 ### Getting started
 
-**To use this plug-in as-is**, just download the [baseline-text.fieldplugin.zip](https://github.com/surveycto/baseline-text/raw/master/extras/test-form/test-form-package.zip) file from this repo, specify this field plug-in as a custom field appearance in the form design (like in the [test form](https://github.com/surveycto/baseline-text/raw/master/extras/test-form/test-form-package.zip)), and attach it to your form. For more details about using field plug-ins, please read the [user documentation](https://docs.surveycto.com/02-designing-forms/03-advanced-topics/06.using-field-plug-ins.html).
-
-**To create your own** field plug-in using this as a template, follow these steps:
-
-1. Fork this repo
-1. Make changes to the files in the `source` directory.  
-    * **Note:** be sure to update the `manifest.json` file as well.
-1. Zip the updated contents of the `source` directory.
-1. Rename the .zip file to *yourpluginname*.fieldplugin.zip (replace *yourpluginname* with the name you want to use for your plug-in).
-1. You may then attach your new .fieldplugin.zip file to your form as normal.
-
-For more information about developing your own field plug-ins, please read the [developer documentation](https://github.com/surveycto/Field-plug-in-resources).
 
 ### Default SurveyCTO feature support
 
@@ -55,12 +45,12 @@ For more information about developing your own field plug-ins, please read the [
 
 ### Parameters
 
-**Note about the `numbers_decimal` appearance on iOS:**  
-iOS has a less-consistent way of determining which on-screen keyboard to display than Android. If you are using this plug-in with the `numbers_decimal` appearance, you should test your form on the actual iOS device that you plan on using. If the wrong keyboard appears (for example, if there is no decimal button available), you may supply an optional parameter to the plug-in to set the keyboard type manually. 
-
 | Parameter key | Parameter value |
 | --- | --- |
-| `ios-inputmode` | Possible values: `none`, `text`, `decimal`, `numeric`, `tel`, `search`, `email`, `url`. [Click here for more information about the inputmode attribute.](https://css-tricks.com/everything-you-ever-wanted-to-know-about-inputmode)|
+| `columns` | The number of columns you want. |
+| `rows` | The number of rows you want. |
+| `column_headers` | The headings for each column separated by a pipe (`|`). |
+| `row_headers`| The headings for each row separated by a pipe (`|`).|
 
 ## More resources
 

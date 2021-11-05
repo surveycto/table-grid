@@ -47,13 +47,9 @@ for (var i = 0; i < numberRows; i++) {
       var hId = '<th scope="col">' + headerText + '</th>'
       table += hId
     } else {
-      var td = '<td contenteditable="true" class="cell"><input class = "input" type = "' + field_type + '" placeholder="Edit here">' 
+      var td = '<td contenteditable="true" class ="cell">' 
       table += td
-      if (prevAnswer != null) {
-        var temp = prevAnswerArray[j]
-        table += temp
-      }
-      table += '</input></td>'
+      table += '</td>'
     }
   }
   table += '</tr>'
@@ -69,6 +65,12 @@ var cells = getTable.getElementsByTagName('td')
 var cells1 = document.querySelectorAll('.cell')
 var cellsLength = cells.length
 // var cellValues = ''
+
+if (prevAnswer != null) {
+  for (var t = 0; t < prevAnswerArray.length - 1; t++) {
+     cells[t].innerHTML = prevAnswerArray[t]
+  }
+}
 
 for (var p = 0; p < cellsLength; p++) {
   var cell = cells1[p]
