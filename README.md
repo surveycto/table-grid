@@ -6,7 +6,7 @@
 
 This field plug-in allows for spreadsheet like table data input. Instead of a repeat group using the 'table' appearance option, a table with columns adjacent to one another (unlike what is allowed with fields normally) is displayed.
 
-[![Download now](extras/download-button.png)](https://github.com/surveycto/baseline-text/raw/master/baseline-text.fieldplugin.zip)
+[![Download now](extras/download-button.png)](https://github.com/surveycto/table-grid/raw/master/table-grid.fieldplugin.zip)
 
 This plug-in is currently under beta. If you you find a problem with the field plug-in, please email support@surveycto.com.
 
@@ -32,13 +32,13 @@ The data is stored in a pipe separated list of items such as:
 | Feature / Property | Support |
 | --- | --- |
 | Supported field type(s) | `text`|
-| Default values | Yes |
+| Default values | No |
 | Constraint message | Uses default behavior |
 | Required message | Uses default behavior |
 | Read only | Yes *(shows the current value, if present)* |
-| media:image | Yes |
-| media:audio | Yes |
-| media:video | Yes |
+| media:image | No |
+| media:audio | No |
+| media:video | No |
 | `numbers` appearance | Yes |
 | `numbers_decimal` appearance | Yes |
 | `numbers_phone` appearance | Yes |
@@ -47,17 +47,17 @@ The data is stored in a pipe separated list of items such as:
 
 | Parameter key | Parameter value |
 | --- | --- |
-| `columns` | The number of columns you want. |
-| `rows` | The number of rows you want. |
+| `columns` | The number of columns to be displayed. |
+| `rows` | The number of rows to be displayed. |
 | `column_headers` | The headings for each column separated by a pipe (`|`). |
 | `row_headers`| The headings for each row separated by a pipe (`|`).|
+| `data_type` (optional)| The type of data that will be collected. Currently supports values `text` and `number` which correspond to the similarly name [HTML input types](https://www.w3schools.com/html/html_form_input_types.asp). Default is `text`.|
 
 ## More resources
 
-* **Test form**  
+* **Sample form**  
 This form will help you explore the differences between this field plug-in and the default text field.  
-[Download test form package](https://github.com/surveycto/baseline-text/raw/master/extras/test-form/test-form-package.zip)  
-[Instructions for test form](/extras/test-form/README.md)
+[Download Sample form package](https://github.com/surveycto/baseline-text/raw/master/extras/test-form/test-form-package.zip)  
 
 * **Developer documentation**  
 Instructions and resources for developing your own field plug-ins.  

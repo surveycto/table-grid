@@ -25,7 +25,12 @@ if (prevAnswer != null) {
 // Default field type is text otherwise its the type entered in parameter. 
 if (field_type == null) {
   field_type = 'text'
+} else if (field_type == 'text') {
+  field_type = 'text'
+} else if (field_type = 'number') {
+  field_type = 'number'
 }
+
 numberRows = parseInt(numberRows) + 1
 numberColumns = parseInt(numberColumns)
 var rowHeadersArray = rowHeaders.split('|')
@@ -36,20 +41,20 @@ for (var i = 0; i < numberRows; i++) {
   if (i > 0) {
     table += '<tr>'
     var rowHeader = rowHeadersArray[i - 1]
-    table += '<th scope="row">' + rowHeader + '</th>'
+    table += '<th scope="row" style ="width:auto" class="default-question-text-size">' + rowHeader + '</th>'
   } else {
-    table += '<th scope="col">' + '' + '</th>'
+    table += '<th scope="col" class="default-question-text-size">' + '' + '</th>'
   }
   for (var j = 0; j < numberColumns; j++) {
     if (i === 0) {
       // table += '<thead>'
       var headerText = columnHeadersArray[j]
-      var hId = '<th scope="col">' + headerText + '</th>'
+      var hId = '<th scope="col" class="default-question-text-size">' + headerText + '</th>'
       table += hId
     } else {
-      var td = '<td contenteditable="true" class ="cell">' 
+      var td = '<td><input type="' +  field_type + ' class="cell default-question-text-size" style="width:100%">'
       table += td
-      table += '</td>'
+      table += '</input></td>'
     }
   }
   table += '</tr>'
@@ -60,31 +65,29 @@ for (var i = 0; i < numberRows; i++) {
 table += '</table>'
 div.innerHTML = table // Add the row to main container.
 
-var getTable = document.getElementById('gridTable')
-var cells = getTable.getElementsByTagName('td')
-var cells1 = document.querySelectorAll('.cell')
-var cellsLength = cells.length
-// var cellValues = ''
+var getTable = document.getElementById('gridTable') // Access the table element
+var cells = getTable.getElementsByTagName('input') // Array of all input elements
+var cellsLength = cells.length // Length of array of elements
 
 if (prevAnswer != null) {
   for (var t = 0; t < prevAnswerArray.length - 1; t++) {
-     cells[t].innerHTML = prevAnswerArray[t]
+     cells[t].value = prevAnswerArray[t]
   }
 }
 
 for (var p = 0; p < cellsLength; p++) {
-  var cell = cells1[p]
-  cell.addEventListener('input', (e) => {
-    console.log(getValues())
-    setAnswer(getValues())
-  })
+  var cell = cells[p]
+  cell.addEventListener('input', getValues)
 }
 
-function getValues () {
+function getValues (e) {
   var cellValues = ''
   for (var q = 0; q < cellsLength; q++) {
-    cellValues = cellValues + cells[q].innerHTML + '|'
+    var cell = cells[q]
+    var cellvalue = cell.value
+    cellValues = cellValues + cellvalue + '|'
   }
+  setAnswer(cellValues)
   return cellValues
 }
 

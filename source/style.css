@@ -40,31 +40,30 @@
 td,
 th {
     border: 1px solid rgb(190, 190, 190);
-    padding: 10px;
+    padding: px;
 }
 
 td {
     text-align: center;
-    padding: 5px;
+    /* padding: 5px; */
 }
 
 input {
+    box-sizing: border-box;
     text-align: center;
-    padding: 5px;
+    width: 100%;
 }
 
 tr:nth-child(even) {
-    background-color: lightgray;
+    background-color: #EFECEC;
 }
 
 th[scope="col"] {
-    background-color: #047CC2;
-    color: white;
+    font-weight: bold;
 }
 
 th[scope="row"] {
-    background-color: #98c484;
-    color: white;
+    font-weight: bold;
 }
 
 caption {
