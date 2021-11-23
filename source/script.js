@@ -12,7 +12,7 @@ var columnHeaders = getPluginParameter('column_headers')
 var rowHeaders = getPluginParameter('row_headers')
 var field_type = getPluginParameter('data_type')
 
-var prevAnswer = fieldProperties.CURRENT_ANSWER
+var prevAnswer = fieldProperties.CURRENT_ANSWER // Get previous answer
 
 var div = document.getElementById('table-holder') // General div to house the grid.
 
@@ -52,7 +52,7 @@ for (var i = 0; i < numberRows; i++) {
       var hId = '<th scope="col" class="default-question-text-size">' + headerText + '</th>'
       table += hId
     } else {
-      var td = '<td><input type="' +  field_type + ' class="cell default-question-text-size" style="width:100%">'
+      var td = '<td><input type="' +  field_type + '"' + ' class="cell default-question-text-size">'
       table += td
       table += '</input></td>'
     }
