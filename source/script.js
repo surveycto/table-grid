@@ -10,9 +10,10 @@ var numberColumns = getPluginParameter('columns')
 var numberRows = getPluginParameter('rows')
 var columnHeaders = getPluginParameter('column_headers')
 var rowHeaders = getPluginParameter('row_headers')
-var field_type = getPluginParameter('data_type')
+// var field_type = getPluginParameter('data_type')
 
 var prevAnswer = fieldProperties.CURRENT_ANSWER // Get previous answer
+var fieldAppearance = fieldProperties.APPEARANCE // Get appearance
 
 var div = document.getElementById('table-holder') // General div to house the grid.
 
@@ -23,12 +24,12 @@ if (prevAnswer != null) {
 // New changes for table-grid
 
 // Default field type is text otherwise its the type entered in parameter. 
-if (field_type == null) {
-  field_type = 'text'
-} else if (field_type == 'text') {
-  field_type = 'text'
-} else if (field_type = 'number') {
-  field_type = 'number'
+if (fieldAppearance == null) {
+  fieldAppearance = 'text'
+} else if (fieldAppearance.includes('text')) {
+  fieldAppearance = 'text'
+} else if (fieldAppearance.includes('numbers')) {
+  fieldAppearance = 'number'
 }
 
 numberRows = parseInt(numberRows) + 1
@@ -41,18 +42,18 @@ for (var i = 0; i < numberRows; i++) {
   if (i > 0) {
     table += '<tr>'
     var rowHeader = rowHeadersArray[i - 1]
-    table += '<th scope="row" style ="width:auto" class="default-question-text-size">' + rowHeader + '</th>'
+    table += '<th scope="row" style ="width:auto" class="default-hint-text-size" dir="auto">' + rowHeader + '</th>'
   } else {
-    table += '<th scope="col" class="default-question-text-size">' + '' + '</th>'
+    table += '<th scope="col" class="default-hint-text-size">' + '' + '</th>'
   }
   for (var j = 0; j < numberColumns; j++) {
     if (i === 0) {
       // table += '<thead>'
       var headerText = columnHeadersArray[j]
-      var hId = '<th scope="col" class="default-question-text-size">' + headerText + '</th>'
+      var hId = '<th scope="col" class="default-hint-text-size" dir="auto">' + headerText + '</th>'
       table += hId
     } else {
-      var td = '<td><input type="' +  field_type + '"' + ' class="cell default-question-text-size">'
+      var td = '<td><input type="' +  fieldAppearance + '"' + ' class="cell default-hint-text-size" dir="auto">'
       table += td
       table += '</input></td>'
     }

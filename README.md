@@ -40,8 +40,6 @@ The data is stored in a pipe separated list of items such as:
 | media:audio | No |
 | media:video | No |
 | `numbers` appearance | Yes |
-| `numbers_decimal` appearance | Yes |
-| `numbers_phone` appearance | Yes |
 
 ### Parameters
 
@@ -51,7 +49,6 @@ The data is stored in a pipe separated list of items such as:
 | `rows` | The number of rows to be displayed. |
 | `column_headers` | The headings for each column separated by a pipe (`|`). |
 | `row_headers`| The headings for each row separated by a pipe (`|`).|
-| `data_type` (optional)| The type of data that will be collected. Currently supports values `text` and `number` which correspond to the similarly name [HTML input types](https://www.w3schools.com/html/html_form_input_types.asp). Default is `text`.|
 
 ## More resources
 
