@@ -25,3 +25,51 @@
     background-color: rgba(0,0,0,.07);
     border: 1px solid rgba(0,0,0,.3);
 }
+
+td,
+th {
+    border: 1px solid rgb(190, 190, 190);
+}
+
+td {
+    text-align: center;
+}
+
+input {
+    box-sizing: border-box;
+    text-align: center;
+    width: 100% !important;
+    height: 100% !important;
+    border: none;
+    outline: none;
+}
+
+tr:nth-child(even) {
+    background-color: #EFECEC;
+}
+
+th[scope="col"] {
+    font-weight: bold;
+}
+
+th[scope="row"] {
+    font-weight: bold;
+}
+
+caption {
+    padding: 10px;
+    caption-side: bottom;
+}
+
+table {
+    border-collapse: collapse;
+    border: 2px solid rgb(200, 200, 200);
+    letter-spacing: 1px;
+    font-family: sans-serif;
+    font-size: .8rem;
+    width: 100%;
+}
+
+#table-holder {
+    overflow: auto;
+}

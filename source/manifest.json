@@ -1,7 +1,7 @@
 {
-	"name" : "Baseline text field",
+	"name" : "Table Grid",
 	"author" : "Dobility",
-	"version": "3.2.3",
+	"version": "1.0.9",
 	"supportedFieldTypes": ["text"],
 	"hideDefaultRequiredMessage": false,
 	"hideDefaultConstraintMessage": false
