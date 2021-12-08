@@ -19,12 +19,15 @@ This plug-in is currently under beta. If you you find a problem with the field p
 
 This field plug-in requires the `text` field type.
 The data is stored in a pipe separated list of items such as: 
+
 `1|2|3|4|5|6|7|8|9|0|`
+
 For example, if you have the following table: 
 
-||A | B |
-|1|A1|B1|
-|2|A2|B2|
+| | A | B |
+| --- | --- | --- |
+| 1 | A1 | B1 |
+| 2 | A2 | B2 |
 
 The data will be stored as:
 
@@ -58,8 +61,8 @@ You can use any of the functions in the *Working with lists of items* section of
 | --- | --- |
 | `columns` | The number of columns to be displayed. |
 | `rows` | The number of rows to be displayed. |
-| `column_headers` | The headings for each column separated by a pipe (`|`). |
-| `row_headers`| The headings for each row separated by a pipe (`|`).|
+| `column_headers` | The headings for each column separated by a pipe <code> (&#124;)</code>. |
+| `row_headers`| The headings for each row separated by a pipe <code> (&#124;)</code>.|
 
 ## More resources
 
