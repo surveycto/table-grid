@@ -20,6 +20,13 @@ This plug-in is currently under beta. If you you find a problem with the field p
 This field plug-in requires the `text` field type.
 The data is stored in a pipe separated list of items such as: 
 `1|2|3|4|5|6|7|8|9|0|`
+For example, if you have the following table: 
+||A | B |
+|1|A1|B1|
+|2|A2|B2|
+The data will be stored as:
+`A1|B1|A2|B2|`
+You can use any of the functions in the *Working with lists of items* section of our documentation on [Using expressions in your forms: a reference for all operators and functions](https://docs.surveycto.com/02-designing-forms/01-core-concepts/09.expressions.html). Specifically, the [item-at() function](https://docs.surveycto.com/02-designing-forms/01-core-concepts/09.expressions.html#Help_Forms_item-at) will allow you to retrieve items from the saved value.  
 
 
 ## How to use
