@@ -1,6 +1,6 @@
 # Table grid
 
-![Default appearance for the 'table-grid' field plug-in](extras/preview.jpg)
+![Default appearance for the 'table-grid' field plug-in](extras/tablegrid.png)
 
 ## Description
 
