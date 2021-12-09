@@ -1,6 +1,6 @@
 # Table grid
 
-![Default appearance for the 'table-grid' field plug-in](extras/preview.jpg)
+![Default appearance for the 'table-grid' field plug-in](extras/tablegrid.png)
 
 ## Description
 
@@ -14,6 +14,7 @@ This plug-in is currently under beta. If you you find a problem with the field p
 
 1. Define number of rows and columns in the table.
 1. Define the labels for the rows and columns in the table.
+1. Use the `numbers` appearance for numeric input.
 
 ### Data format
 
@@ -56,6 +57,8 @@ You can use any of the functions in the *Working with lists of items* section of
 | `numbers` appearance | Yes |
 
 ### Parameters
+
+The following parameters are required for this field plug-in:
 
 | Parameter key | Parameter value |
 | --- | --- |
