@@ -68,7 +68,7 @@ The following parameters are required for this field plug-in:
 | `column_headers` | The headings for each column separated by a pipe <code> (&#124;)</code>. |
 | `row_headers`| The headings for each row separated by a pipe <code> (&#124;)</code>.|
 
-**Note**: Because the headings are separates by a pipe <code> (&#124;)</code> make sure there are no pipes <code> (&#124;)</code> in any of the headers. 
+**Note**: Because the headings are separates by a pipe <code> (&#124;)</code> make sure there are no pipes <code> (&#124;)</code> in any of the text in the headers. 
 
 ## More resources
 
