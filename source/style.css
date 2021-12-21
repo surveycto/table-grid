@@ -37,16 +37,18 @@ td {
 
 input {
     box-sizing: border-box;
+    max-width: 100%;
     text-align: center;
     width: 100% !important;
     height: 100% !important;
     border: none;
     outline: none;
+    overflow: auto;
 }
 
-tr:nth-child(even) {
+/* tr:nth-child(even) {
     background-color: #EFECEC;
-}
+} */
 
 th[scope="col"] {
     font-weight: bold;
@@ -54,6 +56,7 @@ th[scope="col"] {
 
 th[scope="row"] {
     font-weight: bold;
+    background-color: #EFECEC;
 }
 
 caption {
@@ -70,6 +73,6 @@ table {
     width: 100%;
 }
 
-#table-holder {
+/* #table-holder {
     overflow: auto;
-}
+} */
