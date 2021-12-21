@@ -4,7 +4,7 @@
 
 ## Description
 
-This field plug-in allows for spreadsheet like table data input. Instead of a repeat group using the 'table' appearance option, a table with columns adjacent to one another (unlike what is allowed with fields normally) is displayed.
+This field plug-in supports the creation of a table for data input in SurveyCTO forms. While this has been a SurveyCTO limitation so far, it is possible to address this request through the creation of a [Repeat Group](https://docs.surveycto.com/02-designing-forms/01-core-concepts/06.groups.html) with [table appearance](https://www.surveycto.com/videos/paper-to-digital-tables/), which displays the data collected in a table. This field plug-in, however, allows you to create the real grid appearance and edit data directly from the table.
 
 [![Download now](extras/download-button.png)](https://github.com/surveycto/table-grid/raw/master/table-grid.fieldplugin.zip)
 
@@ -15,6 +15,7 @@ This plug-in is currently under beta. If you you find a problem with the field p
 1. Define number of rows and columns in the table.
 1. Define the labels for the rows and columns in the table.
 1. Use the `numbers` appearance for numeric input.
+1. Use **dynamic references** in the headings for rows and columns. 
 
 ### Data format
 
@@ -66,6 +67,8 @@ The following parameters are required for this field plug-in:
 | `rows` | The number of rows to be displayed. |
 | `column_headers` | The headings for each column separated by a pipe <code> (&#124;)</code>. |
 | `row_headers`| The headings for each row separated by a pipe <code> (&#124;)</code>.|
+
+**Note**: Because the headings are separates by a pipe <code> (&#124;)</code> make sure there are no pipes <code> (&#124;)</code> in any of the headers. 
 
 ## More resources
 
