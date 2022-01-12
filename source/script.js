@@ -10,29 +10,29 @@ var numberColumns = getPluginParameter('columns')
 var numberRows = getPluginParameter('rows')
 var columnHeaders = getPluginParameter('column_headers')
 var rowHeaders = getPluginParameter('row_headers')
+var required = parseInt(getPluginParameter('required')) // Change to integer for ease of comparing.
 // var field_type = getPluginParameter('data_type')
 
-var prevAnswer = fieldProperties.CURRENT_ANSWER // Get previous answer
-var fieldAppearance = fieldProperties.APPEARANCE // Get appearance
+var prevAnswer = fieldProperties.CURRENT_ANSWER // Get previous answer.
+var fieldAppearance = fieldProperties.APPEARANCE // Get appearance.
 
 var div = document.getElementById('table-holder') // General div to house the grid.
 
+// Check if there was a previous answer so they can be loaded into table.
 if (prevAnswer != null) {
-  prevAnswerArray = prevAnswer.split('|')
+  prevAnswerArray = prevAnswer.split('|') // Create array of previous responses.
 }
 
 // New changes for table-grid
 
-// Default field type is text otherwise its the type entered in parameter. 
-if (fieldAppearance == null) {
-  fieldAppearance = 'text'
-} else if (fieldAppearance.includes('text')) {
-  fieldAppearance = 'text'
-} else if (fieldAppearance.includes('numbers')) {
+// If using the numbers appearance, show number input field otherwise text. 
+if (fieldAppearance.includes('numbers')) {
   fieldAppearance = 'number'
+} else {
+  fieldAppearance = 'text'
 }
 
-numberRows = parseInt(numberRows) + 1
+numberRows = parseInt(numberRows) + 1 
 numberColumns = parseInt(numberColumns)
 var rowHeadersArray = rowHeaders.split('|')
 var columnHeadersArray = columnHeaders.split('|')
@@ -53,7 +53,12 @@ for (var i = 0; i < numberRows; i++) {
       var hId = '<th scope="col" class="default-hint-text-size" dir="auto">' + headerText + '</th>'
       table += hId
     } else {
-      var td = '<td><input type="' +  fieldAppearance + '"' + ' class="cell default-hint-text-size" dir="auto">'
+      if (required === 1) {
+        var td = '<td><input type="' +  fieldAppearance + '"' + ' class="cell default-hint-text-size" dir="auto" required>'
+      } else {
+        var td = '<td><input type="' +  fieldAppearance + '"' + ' class="cell default-hint-text-size" dir="auto">'
+      }
+      
       table += td
       table += '</input></td>'
     }
@@ -88,115 +93,21 @@ function getValues (e) {
     var cellvalue = cell.value
     cellValues = cellValues + cellvalue + '|'
   }
-  setAnswer(cellValues)
+  if (required === 1) {
+    checkAllRequired (cellValues)
+  } else {
+    setAnswer(cellValues)
+  }
   return cellValues
 }
 
-// Find the input element
-// var input = document.getElementById('text-field')
-
-// // Restricts input for the given textbox to the given inputFilter.
-// function setInputFilter (textbox, inputFilter) {
-//   function restrictInput () {
-//     if (inputFilter(this.value)) {
-//       this.oldSelectionStart = this.selectionStart
-//       this.oldSelectionEnd = this.selectionEnd
-//       this.oldValue = this.value
-//     } else if (this.hasOwnProperty('oldValue')) {
-//       this.value = this.oldValue
-//       this.setSelectionRange(this.oldSelectionStart, this.oldSelectionEnd)
-//     } else {
-//       this.value = ''
-//     }
-//   }
-
-//   // Apply restriction when typing, copying/pasting, dragging-and-dropping, etc.
-//   textbox.addEventListener('input', restrictInput)
-//   textbox.addEventListener('keydown', restrictInput)
-//   textbox.addEventListener('keyup', restrictInput)
-//   textbox.addEventListener('mousedown', restrictInput)
-//   textbox.addEventListener('mousedown', restrictInput)
-//   textbox.addEventListener('contextmenu', restrictInput)
-//   textbox.addEventListener('drop', restrictInput)
-// }
-
-// // If the field label or hint contain any HTML that isn't in the form definition, then the < and > characters will have been replaced by their HTML character entities, and the HTML won't render. We need to turn those HTML entities back to actual < and > characters so that the HTML renders properly. This will allow you to render HTML from field references in your field label or hint.
-// function unEntity (str) {
-//   return str.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-// }
-// if (fieldProperties.LABEL) {
-//   document.querySelector('.label').innerHTML = unEntity(fieldProperties.LABEL)
-// }
-// if (fieldProperties.HINT) {
-//   document.querySelector('.hint').innerHTML = unEntity(fieldProperties.HINT)
-// }
-
-// // Define what happens when the user attempts to clear the response
-// function clearAnswer () {
-//   input.value = ''
-// }
-
-// // If the field is not marked readonly, then focus on the field and show the on-screen keyboard (for mobile devices)
-// function setFocus () {
-//   if (!fieldProperties.READONLY) {
-//     input.focus()
-//     if (window.showSoftKeyboard) {
-//       window.showSoftKeyboard()
-//     }
-//   }
-// }
-
-// // Save the user's response (update the current answer)
-// input.oninput = function () {
-//   setAnswer(input.value)
-// }
-
-// // check for standard appearance options and apply them
-// if (fieldProperties.APPEARANCE.includes('numbers_phone') === true) {
-//   input.type = 'tel'
-// } else if (fieldProperties.APPEARANCE.includes('numbers_decimal') === true) {
-//   input.pattern = '[0-9]*'
-
-//   // Set/remove the 'inputmode'.
-//   function setInputMode (attributeValue) {
-//     if (attributeValue === null) {
-//       input.removeAttribute('inputmode')
-//     } else {
-//       input.setAttribute('inputmode', attributeValue)
-//     }
-//   }
-
-//   setInputMode('numeric')
-
-//   // For iOS, we'll default the inputmode to 'numeric' (as defined above), unless some specific value is
-//   // passed as plug-in parameter.
-//   if (isIOS) {
-//     var inputModeIOS = getPluginParameter('inputmode-ios')
-//     if (inputModeIOS !== undefined) {
-//       setInputMode(inputModeIOS)
-//     }
-//   } else if (isAndroid) {
-//     // For Android, we'll default the inputmode to 'numeric' (as defined above),
-//     // unless some specific value is passed as plug-in parameter.
-//     var inputModeAndroid = getPluginParameter('inputmode-android')
-//     if (inputModeAndroid !== undefined) {
-//       setInputMode(inputModeAndroid)
-//     }
-//   } else if (isWebCollect) {
-//     // For WebCollect, we'll default the inputmode to 'numeric' (as defined above),
-//     // unless some specific value is passed as plug-in parameter.
-//     var inputModeWebCollect = getPluginParameter('inputmode-web')
-//     if (inputModeWebCollect !== undefined) {
-//       setInputMode(inputModeWebCollect)
-//     }
-//   }
-
-//   // If the field is not marked as readonly, then restrict input to decimal only.
-//   if (!fieldProperties.READONLY) {
-//     setInputFilter(input, function (value) {
-//       return /^-?\d*[.,]?\d*$/.test(value)
-//     })
-//   }
-// } else if (fieldProperties.APPEARANCE.includes('numbers') === true) {
-//   input.type = 'number'
-// }
+// Checks whether all the cells have values
+function checkAllRequired(cellValues) {
+  var tempArray = cellValues.split('|') // Creates an array based on current entered values.
+  var tempArray2 = tempArray.pop() // CLEAN UP: Removes extra last item in the array.
+  if(tempArray.includes('')) { // Checks if the array has an empty value.
+    setAnswer('') // Sets the answer to null if the array has an empty value, ensuring you can't progress forward. 
+  } else {
+    setAnswer(cellValues) // Sets answer when all cells are entered. 
+  }
+}
