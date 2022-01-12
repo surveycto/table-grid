@@ -69,6 +69,7 @@ The following parameters are required for this field plug-in:
 | `rows` | The number of rows to be displayed. |
 | `column_headers` | The headings for each column separated by a pipe <code> (&#124;)</code>. |
 | `row_headers`| The headings for each row separated by a pipe <code> (&#124;)</code>.|
+| `required` (optional)| Indicates whether some or all the cells in the table should have a value. When set to `1` all the the `cells` in the table should have a value. Default is `0`.|
 
 **Note**: Because the headings are separates by a pipe <code> (&#124;)</code> make sure there are no pipes <code> (&#124;)</code> in any of the text in the headers. 
 

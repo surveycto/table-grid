@@ -1,7 +1,7 @@
 {
 	"name" : "Table Grid",
 	"author" : "Dobility",
-	"version": "1.0.12",
+	"version": "1.0.13",
 	"supportedFieldTypes": ["text"],
 	"hideDefaultRequiredMessage": false,
 	"hideDefaultConstraintMessage": false
