@@ -76,8 +76,7 @@ The following parameters are required for this field plug-in:
 ## More resources
 
 * **Sample form**  
-This form will help you explore the differences between this field plug-in and the default text field.  
-[Download Sample form package](https://github.com/surveycto/baseline-text/raw/master/extras/test-form/test-form-package.zip)  
+You can find some sample form definitions in here:[extras/sample-form](https://github.com/surveycto/table-grid/tree/master/extras/sample-form)  
 
 * **Developer documentation**  
 Instructions and resources for developing your own field plug-ins.  
