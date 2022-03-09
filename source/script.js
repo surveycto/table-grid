@@ -42,7 +42,7 @@ for (var i = 0; i < numberRows; i++) {
   if (i > 0) {
     table += '<tr>'
     var rowHeader = rowHeadersArray[i - 1]
-    table += '<th scope="row" style ="width:auto" class="default-hint-text-size" dir="auto">' + rowHeader + '</th>'
+    table += '<th scope="row" style ="width:auto" class="default-hint-text-size" dir="auto">' + unEntity(rowHeader) + '</th>'
   } else {
     table += '<th scope="col" class="default-hint-text-size">' + '' + '</th>'
   }
@@ -50,7 +50,7 @@ for (var i = 0; i < numberRows; i++) {
     if (i === 0) {
       // table += '<thead>'
       var headerText = columnHeadersArray[j]
-      var hId = '<th scope="col" class="default-hint-text-size" dir="auto">' + headerText + '</th>'
+      var hId = '<th scope="col" class="default-hint-text-size sticky" dir="auto">' + unEntity(headerText) + '</th>'
       table += hId
     } else {
       if (required === 1) {
@@ -110,4 +110,10 @@ function checkAllRequired(cellValues) {
   } else {
     setAnswer(cellValues) // Sets answer when all cells are entered. 
   }
+}
+
+// If the field label or hint contain any HTML that isn't in the form definition, then the < and > characters will have been replaced by their HTML character entities, and the HTML won't render. We need to turn those HTML entities back to actual < and > characters so that the HTML renders properly. 
+// This will allow you to render HTML from field references in your column headers.
+function unEntity (str) {
+  return str.replace(/&lt;/g, '<').replace(/&gt;/g, '>')
 }
