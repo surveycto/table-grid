@@ -52,11 +52,15 @@ input {
 
 th[scope="col"] {
     font-weight: bold;
+    position:sticky;
+    position: -webkit-sticky;
+    top:0;
 }
 
 th[scope="row"] {
     font-weight: bold;
     background-color: #EFECEC;
+    text-align: left;
 }
 
 caption {
@@ -72,6 +76,12 @@ table {
     font-size: .8rem;
     width: 100%;
 }
+
+/* .sticky {
+    position: fixed;
+    top: 0;
+    width: 100%
+  } */
 
 /* #table-holder {
     overflow: auto;
