@@ -1,8 +1,10 @@
 {
-	"name" : "Table Grid",
-	"author" : "Dobility",
-	"version": "1.0.15",
-	"supportedFieldTypes": ["text"],
+	"name": "Table Grid",
+	"author": "Dobility",
+	"version": "2.0.0",
+	"supportedFieldTypes": [
+		"text"
+	],
 	"hideDefaultRequiredMessage": false,
 	"hideDefaultConstraintMessage": false
 }

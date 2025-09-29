@@ -2,28 +2,45 @@
 
 <!-- If there is an image specified in the media:image column, show it here -->
 {{#MEDIAIMAGE}}
-    <img src="{{MEDIAIMAGE}}" />
+<img src="{{MEDIAIMAGE}}" />
 {{/MEDIAIMAGE}}
 
 <!-- If there is audio specified in the media:audio column, show it here -->
 {{#MEDIAAUDIO}}
-    <audio controls controlsList="nodownload">
-        <source src="{{MEDIAAUDIO}}">
-        Your browser does not support the audio element.
-    </audio>
+<audio controls controlsList="nodownload">
+    <source src="{{MEDIAAUDIO}}">
+    Your browser does not support the audio element.
+</audio>
 {{/MEDIAAUDIO}}
 
 <!-- If there is a video specified in the media:video column, show it here -->
 {{#MEDIAVIDEO}}
-    <video width="100%" height="*" controls controlsList="nodownload">
-        <source src="{{MEDIAVIDEO}}">
-        Your browser does not support the video tag.
-    </video>
+<video width="100%" height="*" controls controlsList="nodownload">
+    <source src="{{MEDIAVIDEO}}">
+    Your browser does not support the video tag.
+</video>
 {{/MEDIAVIDEO}}
 
 <div class="hint default-hint-text-size" dir="auto">{{{HINT}}}</div>
 
-<div class="wrapper">
+<!-- Historical data toggle controls -->
+<div id="historical-controls" class="historical-controls" style="display: none;">
+    <button type="button" id="toggle-view" class="toggle-button">
+        Show <span id="toggle-text">Historical</span> Data
+    </button>
+</div>
+
+<!-- Table container -->
+<div id="table-container" class="table-container">
+    <div id="table-wrapper" class="table-wrapper">
+        <!-- Enhanced table will be generated dynamically -->
+    </div>
+
+    <!-- Backward compatibility: Legacy table container -->
     <div id='table-holder'>
+        <!-- Legacy table will be generated here if using old parameters -->
     </div>
 </div>
+
+<!-- Hidden input for storing the answer -->
+<input type="hidden" id="answer-input" value="{{CURRENT_ANSWER}}" />
