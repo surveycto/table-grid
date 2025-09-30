@@ -4,6 +4,20 @@
 // Version 2.0.0
 
 // ====================
+// DEBUG MODE
+// ====================
+
+// Set to true for development debugging
+var DEBUG_MODE = false
+
+// Debug logging function
+function debugLog() {
+  if (DEBUG_MODE && console && console.log) {
+    console.log.apply(console, arguments)
+  }
+}
+
+// ====================
 // PLATFORM DETECTION
 // ====================
 
@@ -12,7 +26,7 @@ var isWebCollect = (document.body.className.indexOf('web-collect') >= 0)
 var isAndroid = (document.body.className.indexOf('android-collect') >= 0)
 var isIOS = (document.body.className.indexOf('ios-collect') >= 0)
 
-console.log('Platform detection:', {
+debugLog('Platform detection:', {
   isWebCollect: isWebCollect,
   isAndroid: isAndroid,
   isIOS: isIOS
@@ -22,12 +36,13 @@ console.log('Platform detection:', {
 // PARAMETER PARSING FUNCTIONS
 // ====================
 
-function safeGetPluginParameter(name, defaultValue = null) {
+function safeGetPluginParameter(name, defaultValue) {
+  defaultValue = defaultValue !== undefined ? defaultValue : null
   try {
     var value = getPluginParameter(name)
 
     if (value === null || value === undefined) {
-      console.log('Parameter \'' + name + '\': null/undefined, using default:', defaultValue)
+      debugLog('Parameter \'' + name + '\': null/undefined, using default:', defaultValue)
       return defaultValue
     }
 
@@ -36,16 +51,16 @@ function safeGetPluginParameter(name, defaultValue = null) {
       value = value.replace(/^['"]|['"]$/g, '')
     }
 
-    console.log('Parameter \'' + name + '\':', value)
+    debugLog('Parameter \'' + name + '\':', value)
     return value
   } catch (error) {
-    console.warn('Failed to get parameter \'' + name + '\':', error)
+    debugLog('Failed to get parameter \'' + name + '\':', error)
     return defaultValue
   }
 }
 
 function getTableParameters() {
-  console.log('=== PARAMETER PARSING DEBUG ===')
+  debugLog('=== PARAMETER PARSING DEBUG ===')
 
   var rawParams = {
     rows: safeGetPluginParameter('rows', '3'),
@@ -63,7 +78,7 @@ function getTableParameters() {
     validation_strict: safeGetPluginParameter('validation_strict', 'false')
   }
 
-  console.log('Raw parameters:', rawParams)
+  debugLog('Raw parameters:', rawParams)
 
   var params = {
     rows: Math.max(1, parseInt(rawParams.rows)),
@@ -75,16 +90,32 @@ function getTableParameters() {
     historicalDisplay: rawParams.historical_display || 'inline',
     historicalLabel: safeGetPluginParameter('historical_label', 'Last Year'),
     numbersAppearance: fieldProperties.APPEARANCE && fieldProperties.APPEARANCE.includes('numbers'),
+
+    // SIMPLIFIED: Only plugin's required parameter (let SurveyCTO handle native required)
     required: parseInt(safeGetPluginParameter('required', '0')), // Keep as 0 or 1, not boolean
+
     total: rawParams.total,
     formatNumbers: rawParams.format_numbers === 'true',
     minValue: rawParams.min_value !== '' ? parseFloat(rawParams.min_value) : null,
     maxValue: rawParams.max_value !== '' ? parseFloat(rawParams.max_value) : null,
     allowDecimals: rawParams.allow_decimals === 'true',
-    validationStrict: rawParams.validation_strict === 'true'
+    validationStrict: rawParams.validation_strict === 'true',
+
+    // Constraint message parameters
+    constraintMessageMin: safeGetPluginParameter('constraint_message_min', 'Value must be at least {min}'),
+    constraintMessageMax: safeGetPluginParameter('constraint_message_max', 'Value must be at most {max}'),
+    constraintMessageDecimals: safeGetPluginParameter('constraint_message_decimals', 'Decimal numbers are not allowed'),
+    constraintMessageInvalid: safeGetPluginParameter('constraint_message_invalid', 'Please enter a valid number'),
+
+    // Soft validation messages
+    constraintMessageMinSoft: safeGetPluginParameter('constraint_message_min_soft', 'Recommended minimum: {min}'),
+    constraintMessageMaxSoft: safeGetPluginParameter('constraint_message_max_soft', 'Recommended maximum: {max}'),
+    constraintMessageDecimalsSoft: safeGetPluginParameter('constraint_message_decimals_soft', 'Whole numbers preferred'),
+    constraintMessageInvalidSoft: safeGetPluginParameter('constraint_message_invalid_soft', 'Please check this number')
   }
-  console.log('Processed parameters:', params)
-  console.log('=== END PARAMETER DEBUG ===')
+
+  debugLog('Processed parameters:', params)
+  debugLog('=== END PARAMETER DEBUG ===')
 
   return params
 }
@@ -94,20 +125,20 @@ function parseLabels(labelString) {
 
   // Remove surrounding quotes if present
   var cleanString = labelString.replace(/^['"]|['"]$/g, '')
-  console.log('Parsing labels - original:', labelString, 'cleaned:', cleanString)
+  debugLog('Parsing labels - original:', labelString, 'cleaned:', cleanString)
 
   if (!cleanString) return []
   return cleanString.split(',').map(function (s) { return s.trim() }).filter(function (s) { return s.length > 0 })
 }
 
 function parseHistoricalData(dataString) {
-  console.log('Raw historical data parameter:', dataString)
+  debugLog('Raw historical data parameter:', dataString)
 
   if (!dataString) return null
 
   // Remove surrounding quotes if present
   var cleanString = dataString.replace(/^['"]|['"]$/g, '')
-  console.log('Cleaned historical data:', cleanString)
+  debugLog('Cleaned historical data:', cleanString)
 
   if (!cleanString.trim()) return null
 
@@ -115,10 +146,10 @@ function parseHistoricalData(dataString) {
     var result = cleanString.split('|').map(function (row) {
       return row.split(',').map(function (cell) { return cell.trim() })
     })
-    console.log('Parsed historical data result:', result)
+    debugLog('Parsed historical data result:', result)
     return result
   } catch (error) {
-    console.warn('Invalid historical data format:', error)
+    debugLog('Invalid historical data format:', error)
     return null
   }
 }
@@ -133,7 +164,8 @@ function parseHistoricalData(dataString) {
  * @param {string} defaultValue - Default value if none found
  * @returns {string} Parameter value or default
  */
-function getUnifiedParameter(paramNames, defaultValue = '') {
+function getUnifiedParameter(paramNames, defaultValue) {
+  defaultValue = defaultValue !== undefined ? defaultValue : ''
   for (var i = 0; i < paramNames.length; i++) {
     var value = safeGetPluginParameter(paramNames[i])
     if (value !== null && value !== undefined) {
@@ -199,7 +231,7 @@ var required = unifiedParams.required
 // ====================
 
 function formatNumber(value, shouldFormat) {
-  if (!shouldFormat || !value || isNaN(value)) {
+  if (!shouldFormat || !value || value === '' || isNaN(value)) {
     return value
   }
 
@@ -208,20 +240,22 @@ function formatNumber(value, shouldFormat) {
 
   // Format with commas for thousands separator
   return num.toLocaleString('en-US', {
-    maximumFractionDigits: 10 // Preserve decimal places
+    maximumFractionDigits: 10, // Preserve decimal places
+    useGrouping: true // Ensure grouping is enabled
   })
 }
 
 function unformatNumber(formattedValue) {
   if (!formattedValue) return ''
-  // Remove commas and other formatting
-  return formattedValue.toString().replace(/,/g, '')
+  // Remove commas and other formatting, but preserve the number
+  var cleaned = formattedValue.toString().replace(/,/g, '').replace(/\s/g, '')
+  return cleaned
 }
 
 function filterDecimalInput(value, allowDecimals) {
   if (allowDecimals || !value) return value
-  // Remove decimal points and everything after
-  return value.replace(/[.,].*$/, '')
+  // Disallow decimals: remove a dot and everything after it (keep grouping commas)
+  return value.replace(/\..*$/, '')
 }
 
 // ====================
@@ -247,63 +281,91 @@ function debounce(func, wait) {
   }
 }
 
-function validateNumericInput(value, params) {
+function validateNumericInput(value, params, useSoftMessages) {
+  useSoftMessages = useSoftMessages || false
   if (!value || value === '') return { valid: true, message: '' }
 
-  // FIXED: Always validate against unformatted value
   var unformattedValue = params.formatNumbers ? unformatNumber(value) : value
   var num = parseFloat(unformattedValue)
-  
-  if (isNaN(num)) return { valid: false, message: 'Please enter a valid number' }
 
-  // FIXED: Check decimal restriction on unformatted value
-  if (!params.allowDecimals && (unformattedValue.includes('.') || unformattedValue.includes(','))) {
-    return { valid: false, message: 'Decimal numbers are not allowed' }
-  }
-
-  // Check range constraints
-  if (params.minValue !== null && num < params.minValue) {
+  if (isNaN(num)) {
     return {
       valid: false,
-      message: 'Value must be at least ' + (params.formatNumbers ? formatNumber(params.minValue, true) : params.minValue)
+      message: useSoftMessages ? params.constraintMessageInvalidSoft : params.constraintMessageInvalid
+    }
+  }
+
+  // Check decimal restriction
+  if (!params.allowDecimals && (unformattedValue.includes('.') || unformattedValue.includes(','))) {
+    return {
+      valid: false,
+      message: useSoftMessages ? params.constraintMessageDecimalsSoft : params.constraintMessageDecimals
+    }
+  }
+
+  // Check range constraints with custom messages
+  if (params.minValue !== null && num < params.minValue) {
+    var message = useSoftMessages ? params.constraintMessageMinSoft : params.constraintMessageMin
+    var formattedMin = params.formatNumbers ? formatNumber(params.minValue, true) : params.minValue
+    return {
+      valid: false,
+      message: message.replace('{min}', formattedMin)
     }
   }
 
   if (params.maxValue !== null && num > params.maxValue) {
+    var message = useSoftMessages ? params.constraintMessageMaxSoft : params.constraintMessageMax
+    var formattedMax = params.formatNumbers ? formatNumber(params.maxValue, true) : params.maxValue
     return {
       valid: false,
-      message: 'Value must be at most ' + (params.formatNumbers ? formatNumber(params.maxValue, true) : params.maxValue)
+      message: message.replace('{max}', formattedMax)
     }
   }
 
   return { valid: true, message: '' }
 }
 
-function validateAllInputs(params) {
+function validateAllInputs(params, useSoftMessages) {
+  useSoftMessages = useSoftMessages || false
   var inputs = document.querySelectorAll('.cell-input')
   var allValid = true
   var invalidCount = 0
+  var invalidInputs = []
 
-  inputs.forEach(function (input) {
+  for (var i = 0; i < inputs.length; i++) {
+    var input = inputs[i]
     if (input.value) {
-      var validation = validateNumericInput(input.value, params)
+      var validation = validateNumericInput(input.value, params, useSoftMessages)
       if (!validation.valid) {
         allValid = false
         invalidCount++
-        showValidationMessage(input, validation.message, false)
+        invalidInputs.push({
+          input: input,
+          message: validation.message,
+          row: input.getAttribute('data-row'),
+          col: input.getAttribute('data-col')
+        })
+        showValidationMessage(input, validation.message, false, useSoftMessages)
       } else {
-        showValidationMessage(input, '', true)
+        showValidationMessage(input, '', true, useSoftMessages)
       }
+    } else {
+      // Empty values are valid for non-required fields
+      showValidationMessage(input, '', true, useSoftMessages)
     }
-  })
+  }
 
-  return { valid: allValid, invalidCount: invalidCount }
+  return {
+    valid: allValid,
+    invalidCount: invalidCount,
+    invalidInputs: invalidInputs
+  }
 }
 
-function showValidationMessage(input, message, isValid) {
-  // Add null checks for DOM safety
+function showValidationMessage(input, message, isValid, isSoft) {
+  isSoft = isSoft || false
   if (!input || !input.parentNode) {
-    console.warn('Invalid input element for validation message')
+    debugLog('Invalid input element for validation message')
     return
   }
 
@@ -316,22 +378,84 @@ function showValidationMessage(input, message, isValid) {
   // Update input styling
   if (isValid) {
     input.classList.remove('invalid-input')
+    input.classList.remove('soft-invalid')
   } else {
     input.classList.add('invalid-input')
 
+    // Add or remove soft-invalid class based on validation type
+    if (isSoft) {
+      input.classList.add('soft-invalid')
+    } else {
+      input.classList.remove('soft-invalid')
+    }
+
     if (message) {
-      // Add validation message
+      // Create validation message
       var messageDiv = document.createElement('div')
       messageDiv.className = 'validation-message'
+
+      if (isSoft) {
+        messageDiv.classList.add('soft')
+      }
+
       messageDiv.textContent = message
 
-      // Add multiline class for long messages
-      if (message.length > 30) {
-        messageDiv.classList.add('multiline')
-      }
+      // Position using fixed positioning relative to viewport
+      positionValidationMessage(input, messageDiv)
 
       input.parentNode.appendChild(messageDiv)
     }
+  }
+}
+
+function positionValidationMessage(input, messageDiv) {
+  var inputRect = input.getBoundingClientRect()
+  var viewportHeight = window.innerHeight
+  var viewportWidth = window.innerWidth
+
+  // Calculate available space in all directions
+  var spaceAbove = inputRect.top
+  var spaceBelow = viewportHeight - inputRect.bottom
+  var spaceLeft = inputRect.left
+  var spaceRight = viewportWidth - inputRect.right
+
+  var messageHeight = 40 // Estimated message height
+  var messageWidth = 250 // Estimated message width
+
+  // Determine best position based on available space
+  var position = 'top' // default
+
+  if (spaceBelow > messageHeight + 10) {
+    position = 'bottom'
+  } else if (spaceAbove > messageHeight + 10) {
+    position = 'top'
+  } else if (spaceRight > messageWidth + 10) {
+    position = 'right'
+  } else if (spaceLeft > messageWidth + 10) {
+    position = 'left'
+  }
+
+  // Apply positioning
+  if (position === 'bottom') {
+    messageDiv.style.top = (inputRect.bottom + 8) + 'px'
+    messageDiv.style.left = (inputRect.left + inputRect.width / 2) + 'px'
+    messageDiv.style.transform = 'translateX(-50%)'
+    messageDiv.classList.add('position-bottom')
+  } else if (position === 'top') {
+    messageDiv.style.top = (inputRect.top - messageHeight - 8) + 'px'
+    messageDiv.style.left = (inputRect.left + inputRect.width / 2) + 'px'
+    messageDiv.style.transform = 'translateX(-50%)'
+    messageDiv.classList.add('position-top')
+  } else if (position === 'right') {
+    messageDiv.style.top = (inputRect.top + inputRect.height / 2) + 'px'
+    messageDiv.style.left = (inputRect.right + 8) + 'px'
+    messageDiv.style.transform = 'translateY(-50%)'
+    messageDiv.classList.add('position-right')
+  } else if (position === 'left') {
+    messageDiv.style.top = (inputRect.top + inputRect.height / 2) + 'px'
+    messageDiv.style.left = (inputRect.left - messageWidth - 8) + 'px'
+    messageDiv.style.transform = 'translateY(-50%)'
+    messageDiv.classList.add('position-left')
   }
 }
 
@@ -339,11 +463,21 @@ function showValidationMessage(input, message, isValid) {
 // TABLE GENERATION FUNCTIONS
 // ====================
 
+function cleanupEventListeners() {
+  var inputs = document.querySelectorAll('.cell-input')
+  for (var i = 0; i < inputs.length; i++) {
+    var newInput = inputs[i].cloneNode(true)
+    if (inputs[i].parentNode) {
+      inputs[i].parentNode.replaceChild(newInput, inputs[i])
+    }
+  }
+}
+
 function generateTable(params) {
-  console.log('=== GENERATE TABLE DEBUG ===')
-  console.log('Display mode:', params.historicalDisplay)
-  console.log('Show historical:', params.showHistorical)
-  console.log('Historical data:', params.historicalData)
+  debugLog('=== GENERATE TABLE DEBUG ===')
+  debugLog('Display mode:', params.historicalDisplay)
+  debugLog('Show historical:', params.showHistorical)
+  debugLog('Historical data:', params.historicalData)
 
   var container = document.getElementById('table-wrapper')
   if (!container) {
@@ -351,7 +485,7 @@ function generateTable(params) {
   }
 
   if (!container) {
-    console.error('Table container not found')
+    debugLog('Table container not found')
     return
   }
 
@@ -361,25 +495,26 @@ function generateTable(params) {
   table.setAttribute('aria-label', 'Data entry table with ' + (params.showHistorical ? 'historical data' : 'current data only'))
 
   // Generate header
-  console.log('Generating header...')
+  debugLog('Generating header...')
   var thead = generateTableHeader(params)
   table.appendChild(thead)
 
   // Generate body
-  console.log('Generating body...')
+  debugLog('Generating body...')
   var tbody = generateTableBody(params)
   table.appendChild(tbody)
 
+  cleanupEventListeners()
   container.innerHTML = ''
   container.appendChild(table)
 
-  console.log('Table generated, setting up events...')
+  debugLog('Table generated, setting up events...')
   setupCellEventListeners()
 
-  console.log('Loading existing data...')
+  debugLog('Loading existing data...')
   loadExistingData(params)
 
-  console.log('=== END GENERATE TABLE DEBUG ===')
+  debugLog('=== END GENERATE TABLE DEBUG ===')
 }
 
 function generateTableHeader(params) {
@@ -450,10 +585,10 @@ function generateTableBody(params) {
 
         if (histValue !== null && histValue !== undefined) {
           histCell.textContent = params.formatNumbers ? formatNumber(histValue, true) : histValue
-          console.log('Adding historical cell [' + rowIndex + '][' + colIndex + '] with value: "' + histValue + '"')
+          debugLog('Adding historical cell [' + rowIndex + '][' + colIndex + '] with value: "' + histValue + '"')
         } else {
           histCell.textContent = '-'
-          console.log('Adding historical cell [' + rowIndex + '][' + colIndex + '] with no data (showing "-")')
+          debugLog('Adding historical cell [' + rowIndex + '][' + colIndex + '] with no data (showing "-")')
         }
 
         histCell.setAttribute('aria-label', 'Historical value: ' + (histValue || 'no data'))
@@ -522,12 +657,12 @@ function createCellContent(params, rowIndex, colIndex) {
   var container = document.createElement('div')
   container.className = 'cell-content'
 
-  console.log('Creating cell [' + rowIndex + '][' + colIndex + ']')
+  debugLog('Creating cell [' + rowIndex + '][' + colIndex + ']')
 
   // Historical value display (inline mode OR toggle mode)
   if (params.showHistorical && (params.historicalDisplay === 'inline' || params.historicalDisplay === 'toggle')) {
     var histValue = getHistoricalValue(params.historicalData, rowIndex, colIndex)
-    console.log('Historical value for [' + rowIndex + '][' + colIndex + ']:', histValue)
+    debugLog('Historical value for [' + rowIndex + '][' + colIndex + ']:', histValue)
 
     if (histValue !== null && histValue !== undefined) {
       var histSpan = document.createElement('span')
@@ -537,7 +672,7 @@ function createCellContent(params, rowIndex, colIndex) {
       histSpan.setAttribute('aria-label', params.historicalLabel + ': ' + histValue)
       histSpan.title = params.historicalLabel + ': ' + histValue
       container.appendChild(histSpan)
-      console.log('Added historical span with value:', histValue)
+      debugLog('Added historical span with value:', histValue)
     }
   }
 
@@ -572,7 +707,7 @@ function createCellContent(params, rowIndex, colIndex) {
   var colLabel = params.colLabels[colIndex] || 'Column ' + (colIndex + 1)
   input.setAttribute('aria-label', 'Current value for ' + rowLabel + ' ' + colLabel)
 
-  // Required field handling - MATCH ORIGINAL BEHAVIOR
+  // SIMPLIFIED: Only plugin required field handling
   if (params.required === 1) {
     input.required = true
     input.setAttribute('aria-required', 'true')
@@ -590,7 +725,7 @@ function createCellContent(params, rowIndex, colIndex) {
 }
 
 function getHistoricalValue(historicalData, rowIndex, colIndex) {
-  console.log('Getting historical value for [' + rowIndex + '][' + colIndex + ']', {
+  debugLog('Getting historical value for [' + rowIndex + '][' + colIndex + ']', {
     historicalData: historicalData,
     hasData: !!historicalData,
     hasRow: !!(historicalData && historicalData[rowIndex]),
@@ -602,7 +737,7 @@ function getHistoricalValue(historicalData, rowIndex, colIndex) {
   }
 
   var value = historicalData[rowIndex][colIndex]
-  console.log('Historical value found: "' + value + '"')
+  debugLog('Historical value found: "' + value + '"')
   return value
 }
 
@@ -614,18 +749,16 @@ function setupCellEventListeners() {
   var inputs = document.querySelectorAll('.cell-input')
   var params = getTableParameters()
 
-  console.log('=== SETTING UP EVENT LISTENERS ===')
-  console.log('Found inputs:', inputs.length)
-  console.log('Format numbers:', params.formatNumbers)
-  console.log('Allow decimals:', params.allowDecimals)
-  console.log('Min value:', params.minValue)
-  console.log('Max value:', params.maxValue)
+  // Create debounced validation functions for both soft and hard validation
+  var debouncedSoftValidation = debounce(function (input, params) {
+    var validation = validateNumericInput(input.value, params, true) // Use soft messages
+    showValidationMessage(input, validation.message, validation.valid, true)
+  }, 300)
 
-  // Create debounced validation function for better performance
-  var debouncedValidation = debounce(function (input, params) {
-    var validation = validateNumericInput(input.value, params)
-    showValidationMessage(input, validation.message, validation.valid)
-  }, 300) // 300ms delay
+  var debouncedHardValidation = debounce(function (input, params) {
+    var validation = validateNumericInput(input.value, params, false) // Use hard messages
+    showValidationMessage(input, validation.message, validation.valid, false)
+  }, 300)
 
   // Create debounced update function
   var debouncedUpdate = debounce(function () {
@@ -633,14 +766,25 @@ function setupCellEventListeners() {
     updateTotals(params)
   }, 150) // 150ms delay for updates
 
-  inputs.forEach(function (input) {
+  for (var i = 0; i < inputs.length; i++) {
+    var input = inputs[i]
     // Handle number formatting and validation on input
     if (params.formatNumbers || !params.allowDecimals || params.minValue !== null || params.maxValue !== null) {
-      console.log('Setting up ENHANCED input handling for input:', input)
+      debugLog('Setting up ENHANCED input handling for input:', input)
+
+      // Flag to prevent recursive formatting
+      input._isFormatting = false
 
       input.addEventListener('input', function () {
-        var cursorPos = this.selectionStart
+        // Prevent recursive formatting
+        if (this._isFormatting) {
+          return
+        }
+
         var rawValue = this.value
+
+        // Store original cursor position
+        var cursorPosition = this.selectionStart
 
         // Filter decimal input if not allowed
         if (!params.allowDecimals) {
@@ -651,58 +795,101 @@ function setupCellEventListeners() {
           }
         }
 
-        // Apply number formatting if enabled
-        if (params.formatNumbers) {
-          var unformattedValue = unformatNumber(rawValue)
+        // Real-time formatting with smart cursor positioning
+        if (params.formatNumbers && rawValue) {
+          // Remove existing formatting to get clean number
+          var unformatted = unformatNumber(rawValue)
 
-          // Only format if it's a valid number
-          if (unformattedValue && !isNaN(unformattedValue)) {
-            var formatted = formatNumber(unformattedValue, true)
-            if (formatted !== this.value) {
+          if (unformatted && !isNaN(unformatted)) {
+            var formatted = formatNumber(unformatted, true)
+
+            // Always update if different, to ensure formatting is applied
+            if (formatted !== rawValue) {
+              // Set flag to prevent recursive formatting
+              this._isFormatting = true
+
+              // Count digits (not commas) before cursor in the original value
+              var digitsBeforeCursor = 0
+              for (var j = 0; j < Math.min(cursorPosition, rawValue.length); j++) {
+                if (rawValue[j] !== ',') {
+                  digitsBeforeCursor++
+                }
+              }
+
+              // Set the formatted value
               this.value = formatted
-              // Try to maintain cursor position
-              var newPos = cursorPos + (formatted.length - rawValue.length)
-              this.setSelectionRange(newPos, newPos)
+
+              // Find the new cursor position by counting the same number of digits in formatted value
+              var newPosition = 0
+              var digitCount = 0
+              for (var k = 0; k < formatted.length; k++) {
+                if (formatted[k] !== ',') {
+                  digitCount++
+                  if (digitCount >= digitsBeforeCursor) {
+                    newPosition = k + 1
+                    break
+                  }
+                } else if (digitCount >= digitsBeforeCursor) {
+                  newPosition = k
+                  break
+                }
+              }
+
+              // Ensure newPosition is valid
+              if (newPosition === 0) {
+                newPosition = formatted.length
+              }
+
+              // Set cursor position immediately (no setTimeout)
+              try {
+                this.setSelectionRange(newPosition, newPosition)
+              } catch (e) {
+                debugLog('Error setting cursor position:', e)
+              }
+
+              // Clear flag
+              this._isFormatting = false
+
+              // Continue to validation and save - don't skip them!
+              // The formatted value needs to be saved
             }
           }
         }
 
-        // Use debounced validation for better performance
-        debouncedValidation(this, params)
+        // Use soft validation during typing (less intrusive)
+        if (!params.validationStrict) {
+          debouncedSoftValidation(this, params)
+        } else {
+          debouncedHardValidation(this, params)
+        }
 
         // Use debounced updates for better performance
         debouncedUpdate()
       })
 
-      // Handle focus - select all for easy editing
+      // Handle focus - select all for easy editing and remove formatting
       input.addEventListener('focus', function () {
         var cell = this.closest('td')
         if (cell) {
           cell.classList.add('focused-cell')
         }
+
         // Select all text for easy replacement
         var self = this
         setTimeout(function () { self.select() }, 0)
       })
 
-      // Handle blur - ensure proper formatting and validation
+      // Handle blur - apply formatting and final validation
       input.addEventListener('blur', function () {
         var cell = this.closest('td')
         if (cell) {
           cell.classList.remove('focused-cell')
         }
 
-        // Final formatting
-        if (params.formatNumbers) {
-          var rawValue = unformatNumber(this.value)
-          if (rawValue && !isNaN(rawValue)) {
-            this.value = formatNumber(rawValue, true)
-          }
-        }
-
-        // Final validation (immediate for blur)
-        var validation = validateNumericInput(this.value, params)
-        showValidationMessage(this, validation.message, validation.valid)
+        // Use the same validation mode as during typing (respect validationStrict setting)
+        var useSoftValidation = !params.validationStrict
+        var validation = validateNumericInput(this.value, params, useSoftValidation)
+        showValidationMessage(this, validation.message, validation.valid, useSoftValidation)
 
         updateTotals(params)
       })
@@ -718,7 +905,7 @@ function setupCellEventListeners() {
       }
 
     } else {
-      console.log('Setting up STANDARD input handling for input:', input)
+      debugLog('Setting up STANDARD input handling for input:', input)
       // Standard input handling with debouncing
       input.addEventListener('input', function () {
         debouncedUpdate()
@@ -743,7 +930,7 @@ function setupCellEventListeners() {
     input.addEventListener('keydown', function (e) {
       handleKeyboardNavigation(e, this)
     })
-  })
+  }
 }
 
 function handleKeyboardNavigation(event, currentInput) {
@@ -808,34 +995,32 @@ function updateAnswer() {
 
   var answer = answerMatrix.join('|')
 
-  // ORIGINAL REQUIRED LOGIC - Check this FIRST and ALWAYS enforce
+  // PLUGIN'S REQUIRED LOGIC - Check this FIRST and ALWAYS enforce
   if (params.required === 1) {
     checkAllRequired(answer)
     return // Exit here - checkAllRequired will handle setting the answer
   }
 
-  // If not required, check validation constraints
+  // For non-plugin-required fields, check validation constraints
   var hasValidationConstraints = params.minValue !== null || params.maxValue !== null || !params.allowDecimals
 
   if (hasValidationConstraints) {
-    var validation = validateAllInputs(params)
+    // Use soft validation messages if NOT in strict mode
+    var useSoftValidation = !params.validationStrict
+    var validation = validateAllInputs(params, useSoftValidation)
 
-    if (params.validationStrict) {
-      // HARD validation: block progression if validation fails
-      if (!validation.valid) {
-        console.log('Hard validation failed: ' + validation.invalidCount + ' invalid inputs')
-        setAnswer('')
-        return
-      }
-    } else {
+    if (params.validationStrict && !validation.valid) {
+      // HARD validation: preserve data but prevent progression by NOT setting answer
+      debugLog('Hard validation failed: ' + validation.invalidCount + ' invalid inputs - blocking progression')
+      // Do NOT call setAnswer - this preserves existing data and prevents progression
+      return
+    } else if (!params.validationStrict && !validation.valid) {
       // SOFT validation: show warnings but allow progression
-      if (!validation.valid) {
-        console.log('Soft validation: ' + validation.invalidCount + ' invalid inputs (allowing progression)')
-      }
+      debugLog('Soft validation: ' + validation.invalidCount + ' invalid inputs (allowing progression)')
     }
   }
 
-  // Set answer (either no constraints, or validation passed/soft mode)
+  // Set answer (either no constraints, or validation passed, or soft validation mode)
   setAnswer(answer)
 
   // Update hidden input if exists
@@ -846,12 +1031,12 @@ function updateAnswer() {
 }
 
 /**
- * Unified function to check if all required cells have values
- * Works for both legacy and enhanced modes
+ * Plugin's custom required field validation
+ * Only used when required=1 parameter is set
  * @param {string} cellValues - Pipe-separated cell values
  */
 function checkAllRequired(cellValues) {
-  console.log('Checking required fields for values:', cellValues)
+  debugLog('Checking plugin required fields for values:', cellValues)
 
   if (!cellValues) {
     setAnswer('')
@@ -871,10 +1056,10 @@ function checkAllRequired(cellValues) {
   })
 
   if (hasEmptyCell) {
-    console.log('Required validation failed: empty cells found')
+    debugLog('Plugin required validation failed: empty cells found')
     setAnswer('') // Block progression if required cells are empty
   } else {
-    console.log('Required validation passed: all cells filled')
+    debugLog('Plugin required validation passed: all cells filled')
     setAnswer(cellValues) // Allow progression when all cells are filled
   }
 }
@@ -893,8 +1078,8 @@ function loadExistingData(params) {
         var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
         if (input && cells[colIndex]) {
           var value = cells[colIndex]
-          // Format the value if number formatting is enabled
-          if (params.formatNumbers && value && !isNaN(value)) {
+          // Format the value if number formatting is enabled AND the input is not focused
+          if (params.formatNumbers && value && !isNaN(value) && input !== document.activeElement) {
             value = formatNumber(value, true)
           }
           input.value = value
@@ -907,7 +1092,7 @@ function loadExistingData(params) {
       updateTotals(params)
     }, 100)
   } catch (error) {
-    console.warn('Error loading existing data:', error)
+    debugLog('Error loading existing data:', error)
   }
 }
 
@@ -928,8 +1113,8 @@ if (prevAnswer != null) {
  * Generate legacy table using unified parameters for consistency
  */
 function generateLegacyTable() {
-  console.log('=== GENERATING LEGACY TABLE ===')
-  console.log('Using unified parameters:', unifiedParams)
+  debugLog('=== GENERATING LEGACY TABLE ===')
+  debugLog('Using unified parameters:', unifiedParams)
 
   // Determine field appearance
   var fieldAppearance = 'text'
@@ -1006,9 +1191,9 @@ function generateLegacyTable() {
   var div = document.getElementById('table-holder')
   if (div) {
     div.innerHTML = table
-    console.log('Legacy table generated successfully')
+    debugLog('Legacy table generated successfully')
   } else {
-    console.error('Table holder not found')
+    debugLog('Table holder not found')
   }
 }
 
@@ -1066,15 +1251,15 @@ function getValues(e) {
  * Clear all answers in both enhanced and legacy modes
  */
 function clearAnswer() {
-  console.log('Clearing all answers')
+  debugLog('Clearing all answers')
 
   // Clear enhanced mode inputs
   var enhancedInputs = document.querySelectorAll('.cell-input')
-  enhancedInputs.forEach(function (input) {
-    input.value = ''
+  for (var i = 0; i < enhancedInputs.length; i++) {
+    enhancedInputs[i].value = ''
     // Clear any validation messages
-    showValidationMessage(input, '', true)
-  })
+    showValidationMessage(enhancedInputs[i], '', true)
+  }
 
   // Clear legacy mode inputs
   var legacyTable = document.getElementById('gridTable')
@@ -1096,7 +1281,7 @@ function clearAnswer() {
   // Clear the answer
   setAnswer('')
 
-  console.log('All answers cleared')
+  debugLog('All answers cleared')
 }
 
 /**
@@ -1104,7 +1289,7 @@ function clearAnswer() {
  */
 function setFocus() {
   if (fieldProperties.READONLY) {
-    console.log('Field is readonly, not setting focus')
+    debugLog('Field is readonly, not setting focus')
     return
   }
 
@@ -1123,15 +1308,21 @@ function setFocus() {
   }
 
   if (firstInput) {
-    console.log('Setting focus to first input')
+    debugLog('Setting focus to first input')
     firstInput.focus()
 
     // Show soft keyboard on mobile platforms
-    if ((isAndroid || isIOS) && window.showSoftKeyboard) {
-      window.showSoftKeyboard()
+    if (isAndroid || isIOS) {
+      try {
+        if (typeof showSoftKeyboard !== 'undefined') {
+          showSoftKeyboard()
+        }
+      } catch (e) {
+        debugLog('Soft keyboard not available')
+      }
     }
   } else {
-    console.warn('No input field found to focus on')
+    debugLog('No input field found to focus on')
   }
 }
 
@@ -1160,11 +1351,11 @@ function isRTL(language) {
 // ====================
 
 function setupToggleMode(params) {
-  console.log('=== TOGGLE MODE SETUP ===')
-  console.log('Display mode:', params.historicalDisplay)
+  debugLog('=== TOGGLE MODE SETUP ===')
+  debugLog('Display mode:', params.historicalDisplay)
 
   if (params.historicalDisplay !== 'toggle') {
-    console.log('Not toggle mode, skipping setup')
+    debugLog('Not toggle mode, skipping setup')
     return
   }
 
@@ -1173,7 +1364,7 @@ function setupToggleMode(params) {
   var toggleText = document.getElementById('toggle-text')
   var container = document.getElementById('table-container')
 
-  console.log('Toggle elements found:', {
+  debugLog('Toggle elements found:', {
     controls: !!controls,
     toggleBtn: !!toggleBtn,
     toggleText: !!toggleText,
@@ -1181,18 +1372,18 @@ function setupToggleMode(params) {
   })
 
   if (!controls || !toggleBtn || !toggleText || !container) {
-    console.warn('Toggle controls not found in template')
+    debugLog('Toggle controls not found in template')
     return
   }
 
-  console.log('Setting up toggle functionality...')
+  debugLog('Setting up toggle functionality...')
   controls.style.display = 'block'
   container.classList.add('toggle-mode', 'current-view')
 
   var isShowingHistorical = false
 
   toggleBtn.addEventListener('click', function () {
-    console.log('Toggle clicked, current state:', isShowingHistorical)
+    debugLog('Toggle clicked, current state:', isShowingHistorical)
     isShowingHistorical = !isShowingHistorical
 
     if (isShowingHistorical) {
@@ -1204,10 +1395,10 @@ function setupToggleMode(params) {
       container.classList.add('current-view')
       toggleText.textContent = 'Historical'
     }
-    console.log('Toggle state changed to:', isShowingHistorical)
+    debugLog('Toggle state changed to:', isShowingHistorical)
   })
 
-  console.log('=== END TOGGLE MODE SETUP ===')
+  debugLog('=== END TOGGLE MODE SETUP ===')
 }
 
 function setupResponsiveBehavior(params) {
@@ -1326,12 +1517,12 @@ function updateColumnTotals(params) {
  */
 function initializeTableGrid() {
   try {
-    console.log('=== TABLE GRID INITIALIZATION ===')
+    debugLog('=== TABLE GRID INITIALIZATION ===')
 
     // Determine which mode to use
     var useEnhancedMode = shouldUseEnhancedMode()
-    console.log('Mode detection - Enhanced mode:', useEnhancedMode)
-    console.log('Unified parameters:', unifiedParams)
+    debugLog('Mode detection - Enhanced mode:', useEnhancedMode)
+    debugLog('Unified parameters:', unifiedParams)
 
     if (useEnhancedMode) {
       initializeEnhancedMode()
@@ -1343,13 +1534,13 @@ function initializeTableGrid() {
     setupCommonFeatures()
 
   } catch (error) {
-    console.error('Error initializing table grid plugin:', error)
+    debugLog('Error initializing table grid plugin:', error)
     // Fallback to legacy mode on any error
     try {
-      console.log('Falling back to legacy mode due to error')
+      debugLog('Falling back to legacy mode due to error')
       initializeLegacyMode()
     } catch (legacyError) {
-      console.error('Legacy fallback also failed:', legacyError)
+      debugLog('Legacy fallback also failed:', legacyError)
     }
   }
 }
@@ -1358,7 +1549,7 @@ function initializeTableGrid() {
  * Initialize enhanced mode with all new features
  */
 function initializeEnhancedMode() {
-  console.log('=== INITIALIZING ENHANCED MODE ===')
+  debugLog('=== INITIALIZING ENHANCED MODE ===')
 
   var params = getTableParameters()
 
@@ -1399,7 +1590,7 @@ function initializeEnhancedMode() {
  * Initialize legacy mode for backward compatibility
  */
 function initializeLegacyMode() {
-  console.log('=== INITIALIZING LEGACY MODE ===')
+  debugLog('=== INITIALIZING LEGACY MODE ===')
   generateLegacyTable()
   setupLegacyEventListeners()
 }

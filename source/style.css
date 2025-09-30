@@ -4,28 +4,28 @@
     --primary-blue: #047CC2;
     --primary-blue-light: #0691e6;
     --primary-blue-dark: #035a94;
-    
+
     /* Background colors */
     --bg-primary: #ffffff;
     --bg-secondary: #f8f9fa;
     --bg-historical: #f0f8ff;
     --bg-row-header: #e9ecef;
-    
+
     /* Text colors */
     --text-primary: #212529;
     --text-secondary: #6c757d;
     --text-muted: #495057;
-    
+
     /* Border colors */
     --border-light: #dee2e6;
     --border-medium: #adb5bd;
     --border-dark: #6c757d;
-    
+
     /* Status colors */
     --success: #28a745;
     --warning: #ffc107;
     --danger: #dc3545;
-    
+
     /* Font settings */
     --font-family-primary: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     --font-family-mono: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
@@ -46,7 +46,8 @@
 .hint {
     /* add style rules here to change how the hint appears */
     margin: .5rem 0;
-    color: rgba(0, 0, 0, .75); /* Improved contrast */
+    color: rgba(0, 0, 0, .75);
+    /* Improved contrast */
     font-style: italic;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
@@ -139,7 +140,8 @@ input:hover,
 #table-holder {
     overflow: auto;
     width: 100%;
-    margin: 0; /* FIXED: Remove margin to prevent double-spacing with parent .table-container */
+    margin: 0;
+    /* FIXED: Remove margin to prevent double-spacing with parent .table-container */
 }
 
 .gridTable {
@@ -151,10 +153,10 @@ input:hover,
     background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-light) 100%);
     color: white;
     font-weight: 600;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 100;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
 }
@@ -168,7 +170,7 @@ input:hover,
     white-space: nowrap;
     position: sticky;
     left: 0;
-    z-index: 2;
+    z-index: 200;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
 }
@@ -179,7 +181,7 @@ input:hover,
     font-weight: 600;
     position: sticky;
     left: 0;
-    z-index: 3;
+    z-index: 300;
 }
 
 /* Legacy input cells */
@@ -191,10 +193,12 @@ input:hover,
 .gridTable input.cell {
     width: 100% !important;
     height: 100% !important;
-    min-width: 80px;
+    min-width: 90px;
     min-height: 40px;
     border: 2px solid var(--border-light);
     margin: 0;
+    padding: 8px 12px;
+    box-sizing: border-box;
 }
 
 /* Legacy required field styling */
@@ -211,6 +215,8 @@ input:hover,
 .gridTable input.cell[type="number"] {
     text-align: right;
     font-family: var(--font-family-mono);
+    padding-right: 12px;
+    padding-left: 8px;
 }
 
 /* ====================
@@ -220,23 +226,28 @@ input:hover,
 .table-container {
     width: 100%;
     overflow-x: auto;
-    margin: 1rem 0; /* Consistent top/bottom margin for both modes */
+    margin: 1rem 0;
+    /* Consistent top/bottom margin for both modes */
 }
 
 .table-wrapper {
     width: 100%;
     overflow-x: auto;
-    margin: 0; /* No additional margin */
+    margin: 0;
+    /* No additional margin */
 }
 
 .data-table {
     min-width: 600px;
+    table-layout: auto;
+    width: auto;
 }
 
 .data-table th,
 .data-table td {
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
+    white-space: nowrap;
 }
 
 .row-label {
@@ -248,7 +259,7 @@ input:hover,
     white-space: nowrap;
     position: sticky;
     left: 0;
-    z-index: 2;
+    z-index: 200;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
 }
@@ -257,7 +268,7 @@ input:hover,
     background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-row-header) 100%);
     position: sticky;
     left: 0;
-    z-index: 3;
+    z-index: 300;
     font-weight: 600;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
@@ -267,10 +278,10 @@ input:hover,
     background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-light) 100%);
     color: white;
     font-weight: 600;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 100;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
 }
@@ -282,7 +293,7 @@ input:hover,
     border-left: 3px solid var(--primary-blue);
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 100;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
 }
@@ -312,18 +323,22 @@ input:hover,
 }
 
 .cell-input {
-    width: 80px;
+    width: 100%;
+    min-width: 120px;
     min-height: 40px;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
+    padding: 8px 12px;
+    box-sizing: border-box;
 }
 
 .historical-cell {
     background-color: #f9f9f9;
-    color: #555; /* Improved contrast */
+    color: #555;
+    /* Improved contrast */
     font-style: italic;
-    min-width: 80px;
-    padding: 8px;
+    min-width: 120px;
+    padding: 8px 12px;
     text-align: center;
     vertical-align: middle;
     border: 1px solid var(--border-light);
@@ -398,9 +413,8 @@ input:hover,
 
     .cell-input,
     .gridTable input.cell {
-        width: 60px;
-        min-width: 60px;
-        padding: 8px 4px;
+        min-width: 100px;
+        padding: 8px 6px;
     }
 
     .inline-historical {
@@ -433,9 +447,9 @@ input:hover,
 
     .cell-input,
     .gridTable input.cell {
-        width: 50px;
-        min-width: 50px;
-        padding: 2px;
+        min-width: 80px;
+        padding: 6px 4px;
+        font-size: 0.7rem;
     }
 
     .row-label,
@@ -506,6 +520,7 @@ input:hover,
 
 /* High contrast mode support */
 @media (prefers-contrast: high) {
+
     .inline-historical,
     .toggle-historical {
         border: 2px solid #000;
@@ -520,12 +535,13 @@ input:hover,
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
+
     .toggle-button,
     .cell-input,
     .gridTable input.cell {
         transition: none;
     }
-    
+
     .toggle-button:hover {
         transform: none;
     }
@@ -541,11 +557,13 @@ input:hover,
     font-weight: 700;
     color: var(--primary-blue-dark);
     position: relative;
-    text-align: center;
+    text-align: right;
     vertical-align: middle;
-    padding: 8px;
-    font-family: var(--font-family-primary);
+    padding: 8px 12px;
+    font-family: var(--font-family-mono);
     font-size: var(--font-size-base);
+    min-width: 120px;
+    letter-spacing: 0.02em;
 }
 
 .total-cell::before {
@@ -593,6 +611,9 @@ input:hover,
 .gridTable input.cell[inputmode="numeric"] {
     text-align: right;
     font-family: var(--font-family-mono);
+    letter-spacing: 0.02em;
+    padding-right: 12px;
+    padding-left: 8px;
 }
 
 .formatted-number {
@@ -600,16 +621,34 @@ input:hover,
     text-align: right;
 }
 
-/* Highlight formatted inputs */
+/* Highlight formatted inputs when focused (show they're in edit mode) */
 .cell-input:focus[inputmode="numeric"],
 .gridTable input.cell:focus[inputmode="numeric"] {
     background-color: #fff8dc;
+    border-color: var(--primary-blue);
+}
+
+/* Visual indicator for formatted fields */
+.cell-input[inputmode="numeric"]:not(:focus),
+.gridTable input.cell[inputmode="numeric"]:not(:focus) {
+    text-align: right;
+    font-family: var(--font-family-mono);
+    background-color: #fafafa;
+}
+
+/* Show that field is in edit mode */
+.focused-cell .cell-input[inputmode="numeric"] {
+    background-color: #fff !important;
+    text-align: right;
+    /* Keep right-aligned even during editing for consistency */
+    font-family: var(--font-family-mono);
 }
 
 /* ====================
    VALIDATION STYLES
    ==================== */
 
+/* Hard validation (red) - must be fixed */
 .invalid-input,
 .gridTable input.cell.invalid-input {
     border-color: var(--danger) !important;
@@ -617,47 +656,149 @@ input:hover,
     animation: shake 0.3s ease-in-out;
 }
 
-@keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    25% { transform: translateX(-2px); }
-    75% { transform: translateX(2px); }
+/* Soft validation (amber) - warning only, can proceed */
+.invalid-input.soft-invalid,
+.gridTable input.cell.invalid-input.soft-invalid {
+    border-color: var(--warning) !important;
+    background-color: #fffbf0;
+    animation: none;
 }
 
+@keyframes shake {
+
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+
+    25% {
+        transform: translateX(-2px);
+    }
+
+    75% {
+        transform: translateX(2px);
+    }
+}
+
+/* Enhanced validation message positioning */
 .validation-message {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
+    position: fixed;
     background: linear-gradient(135deg, var(--danger) 0%, #c82333 100%);
     color: white;
-    padding: 4px 6px;
+    padding: 6px 10px;
     font-size: var(--font-size-small);
     font-family: var(--font-family-primary);
-    border-radius: 4px;
-    z-index: 10;
+    border-radius: 6px;
+    z-index: 10000;
     white-space: nowrap;
-    overflow: visible;
-    text-overflow: clip;
-    min-width: 200px;
-    width: max-content;
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    pointer-events: none;
     max-width: 300px;
-    box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2);
-}
-
-/* Alternative: Multi-line messages */
-.validation-message.multiline {
-    white-space: normal;
     word-wrap: break-word;
-    max-width: 250px;
+    white-space: normal;
+
+    /* Hide by default - only show on focused cell */
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0.2s ease;
+
+    /* Arrow pointer */
+    &::before {
+        content: '';
+        position: absolute;
+        width: 0;
+        height: 0;
+        border-style: solid;
+    }
 }
 
+/* Soft validation messages (different styling) */
+.validation-message.soft {
+    background: linear-gradient(135deg, var(--warning) 0%, #e0a800 100%);
+    color: #212529;
+    box-shadow: 0 4px 12px rgba(255, 193, 7, 0.3);
+}
+
+/* Arrow positioning for different positions */
+.validation-message.position-top::before {
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px 6px 0 6px;
+    border-color: var(--danger) transparent transparent transparent;
+}
+
+.validation-message.position-bottom::before {
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 0 6px 6px 6px;
+    border-color: transparent transparent var(--danger) transparent;
+}
+
+.validation-message.position-left::before {
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 6px 0 6px 6px;
+    border-color: transparent transparent transparent var(--danger);
+}
+
+.validation-message.position-right::before {
+    left: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 6px 6px 6px 0;
+    border-color: transparent var(--danger) transparent transparent;
+}
+
+/* Soft message arrow colors */
+.validation-message.soft.position-top::before {
+    border-color: var(--warning) transparent transparent transparent;
+}
+
+.validation-message.soft.position-bottom::before {
+    border-color: transparent transparent var(--warning) transparent;
+}
+
+.validation-message.soft.position-left::before {
+    border-color: transparent transparent transparent var(--warning);
+}
+
+.validation-message.soft.position-right::before {
+    border-color: transparent var(--warning) transparent transparent;
+}
+
+/* Ensure messages don't overlap */
 .cell-content {
     position: relative;
 }
 
-/* Ensure validation messages appear above other content */
 .focused-cell .validation-message {
-    z-index: 20;
+    z-index: 10001;
+    /* Show validation message only for focused cell */
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Ensure table cells don't create stacking context issues */
+.data-table td,
+.gridTable td {
+    position: relative;
+}
+
+/* Ensure non-focused cells hide their validation messages */
+.data-table td:not(.focused-cell) .validation-message,
+.gridTable td:not(.focused-cell) .validation-message {
+    opacity: 0;
+    visibility: hidden;
+}
+
+/* Show validation message only for focused cell */
+.data-table td.focused-cell .validation-message,
+.gridTable td.focused-cell .validation-message {
+    opacity: 1;
+    visibility: visible;
 }
 
 /* Style for valid inputs with constraints */
@@ -666,7 +807,7 @@ input:hover,
     border-color: var(--success);
 }
 
-/* Required field styling */
+/* Required field styling - only for plugin required */
 .cell-input[data-required="true"],
 .gridTable input.cell[data-required="true"] {
     border-left: 3px solid var(--danger);

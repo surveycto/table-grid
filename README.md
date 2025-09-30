@@ -15,10 +15,12 @@ This field plug-in supports the creation of a table for data input in SurveyCTO 
 1. Use the `numbers` appearance for numeric input.
 1. Use **dynamic references** in the headings for rows and columns.
 1. **Historical data display** - Show previous period data alongside current inputs.
-1. **Number formatting** - Automatic comma formatting for large numbers.
-1. **Input validation** - Set minimum/maximum values and decimal restrictions.
+1. **Number formatting** - Automatic comma formatting for large numbers with real-time formatting.
+1. **Advanced input validation** - Set minimum/maximum values, decimal restrictions, and custom validation messages.
+1. **Soft vs Hard validation modes** - Choose between warnings (soft) or blocking errors (hard).
 1. **Automatic totals** - Calculate row or column totals in real-time.
 1. **Enhanced accessibility** - Full keyboard navigation and screen reader support.
+1. **Smart validation messages** - Individual cell validation with intelligent positioning to prevent cutoff and overlap.
 
 ### Data format
 
@@ -98,11 +100,26 @@ The following parameters enable advanced features:
 | `historical_display` | How to display historical data: `inline` (default), `columns`, or `toggle`. |
 | `historical_label` | Label for historical data. Default is `"Last Year"`. |
 | `total` | Calculate totals: `row` for row totals, `column` for column totals. |
-| `format_numbers` | Set to `true` to format numbers with comma separators. Default is `false`. |
+| `format_numbers` | Set to `true` to format numbers with comma separators (real-time formatting). Default is `false`. |
 | `min_value` | Minimum allowed value for numeric inputs. |
 | `max_value` | Maximum allowed value for numeric inputs. |
 | `allow_decimals` | Set to `false` to restrict inputs to whole numbers only. Default is `true`. |
-| `validation_strict` | Set to `true` to prevent form progression when validation fails. Default is `false` (soft validation). |
+| `validation_strict` | Set to `true` to prevent form progression when validation fails (hard validation). Set to `false` for soft validation with warnings. Default is `false`. |
+
+#### Validation Message Customization
+
+Customize validation messages for better user experience:
+
+| Parameter key | Parameter value |
+| --- | --- |
+| `constraint_message_min` | Custom message for minimum value violations. Use `{min}` placeholder. Default: `"Value must be at least {min}"` |
+| `constraint_message_max` | Custom message for maximum value violations. Use `{max}` placeholder. Default: `"Value must be at most {max}"` |
+| `constraint_message_decimals` | Custom message when decimals are not allowed. Default: `"Decimal numbers are not allowed"` |
+| `constraint_message_invalid` | Custom message for invalid numbers. Default: `"Please enter a valid number"` |
+| `constraint_message_min_soft` | Soft validation message for minimum values. Default: `"Recommended minimum: {min}"` |
+| `constraint_message_max_soft` | Soft validation message for maximum values. Default: `"Recommended maximum: {max}"` |
+| `constraint_message_decimals_soft` | Soft validation message for decimals. Default: `"Whole numbers preferred"` |
+| `constraint_message_invalid_soft` | Soft validation message for invalid numbers. Default: `"Please check this number"` |
 
 #### Historical Data Display Modes
 
@@ -110,8 +127,30 @@ The following parameters enable advanced features:
 - **`columns`**: Historical data appears in separate columns next to current data columns  
 - **`toggle`**: Users can toggle between viewing historical data and current inputs
 
+#### Validation Modes
+
+- **Soft Validation** (`validation_strict=false`): Shows amber/orange warning messages but allows form progression. Ideal for recommendations or guidelines.
+- **Hard Validation** (`validation_strict=true`): Shows red error messages and prevents form progression until issues are resolved. Required for strict data quality.
+
 #### Example Usage
 
+**Basic table with validation:**
+```
+custom-table-grid(
+  rows=3, 
+  cols=4, 
+  col_labels="Q1, Q2, Q3, Q4",
+  row_labels="Revenue, Expenses, Profit",
+  min_value=0,
+  max_value=1000000,
+  format_numbers=true,
+  validation_strict=false,
+  constraint_message_min="Please enter at least ${min}",
+  constraint_message_min_soft="Consider values above ${min}"
+)
+```
+
+**Advanced table with historical data:**
 ```
 custom-table-grid(
   rows=3, 
@@ -124,6 +163,7 @@ custom-table-grid(
   format_numbers=true,
   total=row,
   min_value=0,
+  allow_decimals=false,
   required=1
 )
 ```
