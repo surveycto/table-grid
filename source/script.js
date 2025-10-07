@@ -98,7 +98,7 @@ function getTableParameters() {
     formatNumbers: rawParams.format_numbers === 'true',
     minValue: rawParams.min_value !== '' ? parseFloat(rawParams.min_value) : null,
     maxValue: rawParams.max_value !== '' ? parseFloat(rawParams.max_value) : null,
-    allowDecimals: rawParams.allow_decimals === 'true',
+    allowDecimals: rawParams.allow_decimals !== 'false', // Allow decimals by default (true unless explicitly 'false')
     validationStrict: rawParams.validation_strict === 'true',
 
     // Constraint message parameters
@@ -215,7 +215,7 @@ var unifiedParams = {
   formatNumbers: getUnifiedParameter(['format_numbers'], 'false') === 'true',
   minValue: getUnifiedParameter(['min_value'], ''),
   maxValue: getUnifiedParameter(['max_value'], ''),
-  allowDecimals: getUnifiedParameter(['allow_decimals'], 'true') === 'true',
+  allowDecimals: getUnifiedParameter(['allow_decimals'], 'true') !== 'false', // Allow decimals by default
   validationStrict: getUnifiedParameter(['validation_strict'], 'false') === 'true'
 }
 
@@ -781,17 +781,33 @@ function setupCellEventListeners() {
           return
         }
 
-        var rawValue = this.value
+        // Skip filtering if we're loading data
+        if (this.getAttribute('data-loading') === 'true') {
+          return
+        }
 
-        // Store original cursor position
+        var rawValue = this.value
         var cursorPosition = this.selectionStart
 
-        // Filter decimal input if not allowed
-        if (!params.allowDecimals) {
-          var filteredValue = filterDecimalInput(rawValue, params.allowDecimals)
-          if (filteredValue !== rawValue) {
-            this.value = filteredValue
-            rawValue = filteredValue
+        // Check if this value matches the originally loaded value (before formatting)
+        var loadedValue = this.getAttribute('data-loaded-value')
+        var isLoadedValue = loadedValue && unformatNumber(rawValue) === unformatNumber(loadedValue)
+
+        if (isLoadedValue) {
+          debugLog('Input matches loaded value, skipping decimal filtering')
+          // Clear the loaded value flag after first check
+          this.removeAttribute('data-loaded-value')
+          // Continue with normal processing (formatting, validation, saving)
+          // but skip the decimal filtering step
+        } else {
+          // Normal user input - apply decimal filtering if needed
+          // Filter decimal input if not allowed
+          if (!params.allowDecimals) {
+            var filteredValue = filterDecimalInput(rawValue, params.allowDecimals)
+            if (filteredValue !== rawValue) {
+              this.value = filteredValue
+              rawValue = filteredValue
+            }
           }
         }
 
@@ -995,26 +1011,75 @@ function updateAnswer() {
 
   var answer = answerMatrix.join('|')
 
-  // PLUGIN'S REQUIRED LOGIC - Check this FIRST and ALWAYS enforce
+  // Check if all cells are empty (critical for SurveyCTO's native required field handling)
+  var allCellsEmpty = true
+  for (var i = 0; i < answerMatrix.length; i++) {
+    var cells = answerMatrix[i].split(',')
+    for (var j = 0; j < cells.length; j++) {
+      if (cells[j] && cells[j].trim() !== '') {
+        allCellsEmpty = false
+        break
+      }
+    }
+    if (!allCellsEmpty) break
+  }
+
+  // CRITICAL: If all cells are empty, decide whether to set an empty answer or no answer
+  if (allCellsEmpty) {
+    debugLog('All cells empty')
+
+    // ONLY set empty answer for plugin's own required logic
+    // For SurveyCTO's native required, we should NOT set any answer to let it work properly
+    if (params.required === 1) {
+      debugLog('Plugin required=1: setting empty answer to block progression')
+      setAnswer('')
+      var hiddenInput = document.getElementById('answer-input')
+      if (hiddenInput) {
+        hiddenInput.value = ''
+      }
+    } else {
+      debugLog('No plugin required: not setting answer to allow SurveyCTO native required to work')
+      // Don't call setAnswer() at all - let SurveyCTO handle required validation
+      // This allows SurveyCTO's native required field validation to trigger properly
+    }
+    return
+  }
+
+  // Check validation constraints BEFORE checking plugin's required (if validation_strict is set)
+  // This ensures that validation_strict works even when required=1
+  var hasValidationConstraints = params.minValue !== null || params.maxValue !== null || params.allowDecimals === false
+
+  if (hasValidationConstraints && params.validationStrict) {
+    // Run validation check first when strict mode is enabled
+    var validation = validateAllInputs(params, false) // Use hard validation messages
+
+    if (!validation.valid) {
+      // HARD validation: Set blank answer to block progression
+      // This works with both plugin required=1 and SurveyCTO's native required
+      debugLog('Hard validation failed: ' + validation.invalidCount + ' invalid inputs - setting blank answer to block progression')
+
+      // Set blank answer to block progression
+      setAnswer('')
+
+      var hiddenInput = document.getElementById('answer-input')
+      if (hiddenInput) {
+        hiddenInput.value = ''
+      }
+      return
+    }
+  }
+
+  // Now check plugin's required logic (validation has already passed if validation_strict was set)
   if (params.required === 1) {
     checkAllRequired(answer)
     return // Exit here - checkAllRequired will handle setting the answer
   }
 
-  // For non-plugin-required fields, check validation constraints
-  var hasValidationConstraints = params.minValue !== null || params.maxValue !== null || !params.allowDecimals
+  // For non-plugin-required fields without strict validation, check validation constraints with soft messages
+  if (hasValidationConstraints && !params.validationStrict) {
+    var validation = validateAllInputs(params, true) // Use soft validation messages
 
-  if (hasValidationConstraints) {
-    // Use soft validation messages if NOT in strict mode
-    var useSoftValidation = !params.validationStrict
-    var validation = validateAllInputs(params, useSoftValidation)
-
-    if (params.validationStrict && !validation.valid) {
-      // HARD validation: preserve data but prevent progression by NOT setting answer
-      debugLog('Hard validation failed: ' + validation.invalidCount + ' invalid inputs - blocking progression')
-      // Do NOT call setAnswer - this preserves existing data and prevents progression
-      return
-    } else if (!params.validationStrict && !validation.valid) {
+    if (!validation.valid) {
       // SOFT validation: show warnings but allow progression
       debugLog('Soft validation: ' + validation.invalidCount + ' invalid inputs (allowing progression)')
     }
@@ -1078,11 +1143,28 @@ function loadExistingData(params) {
         var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
         if (input && cells[colIndex]) {
           var value = cells[colIndex]
+
+          // Store the original loaded value for comparison
+          input.setAttribute('data-loaded-value', value)
+
           // Format the value if number formatting is enabled AND the input is not focused
           if (params.formatNumbers && value && !isNaN(value) && input !== document.activeElement) {
             value = formatNumber(value, true)
           }
+
+          // Set a flag to indicate we're loading data (prevent filtering during load)
+          input.setAttribute('data-loading', 'true')
           input.value = value
+
+          // Remove the loading flag after setting the value
+          // Use requestAnimationFrame to ensure it happens after the input event
+          requestAnimationFrame(function (inp) {
+            return function () {
+              requestAnimationFrame(function () {
+                inp.removeAttribute('data-loading')
+              })
+            }
+          }(input))
         }
       }
     }
@@ -1226,13 +1308,35 @@ function getValues(e) {
 
   var cells = getTable.getElementsByTagName('input')
   var cellValues = ''
+  var hasAnyValue = false
 
   for (var q = 0; q < cells.length; q++) {
     var cell = cells[q]
     var cellvalue = cell ? cell.value : ''
     cellValues = cellValues + cellvalue + '|'
+
+    // Check if any cell has a value
+    if (cellvalue && cellvalue.trim() !== '') {
+      hasAnyValue = true
+    }
   }
 
+  // CRITICAL: If all cells are empty, handle the same way as enhanced mode
+  if (!hasAnyValue) {
+    debugLog('Legacy mode: All cells empty')
+
+    // ONLY set empty answer for plugin's own required logic
+    if (required === 1) {
+      debugLog('Legacy mode - Plugin required=1: setting empty answer to block progression')
+      setAnswer('')
+    } else {
+      debugLog('Legacy mode - No plugin required: not setting answer to allow SurveyCTO native required to work')
+      // Don't call setAnswer() at all - let SurveyCTO handle required validation
+    }
+    return ''
+  }
+
+  // We have data, proceed with normal logic
   if (required === 1) {
     checkAllRequired(cellValues)
   } else {
