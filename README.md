@@ -6,7 +6,7 @@
 
 This field plug-in supports the creation of a table for data input in SurveyCTO forms. While this has been a SurveyCTO limitation so far, it is possible to address this request through the creation of a [Repeat Group](https://docs.surveycto.com/02-designing-forms/01-core-concepts/06.groups.html) with [table appearance](https://www.surveycto.com/videos/paper-to-digital-tables/), which displays the data collected in a table. This field plug-in, however, allows you to create the real grid appearance and edit data directly from the table.
 
-[![Download now](extras/download-button.png)](https://github.com/surveycto/table-grid/blob/main/table-grid.fieldplugin.zip)
+[![Download now](extras/download-button.png)](https://github.com/surveycto/table-grid/raw/refs/heads/main/table-grid.fieldplugin.zip)
 
 This plug-in is currently under beta. If you you find a problem with the field plug-in, please email support@surveycto.com.
 
