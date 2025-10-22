@@ -1,8 +1,5 @@
 /* global fieldProperties, setAnswer, getPluginParameter */
 
-// Enhanced Table Grid Field Plugin with Historical Data Support
-// Version 2.0.0
-
 // ====================
 // DEBUG MODE
 // ====================
@@ -253,9 +250,17 @@ function unformatNumber(formattedValue) {
 }
 
 function filterDecimalInput(value, allowDecimals) {
-  if (allowDecimals || !value) return value
-  // Disallow decimals: remove a dot and everything after it (keep grouping commas)
-  return value.replace(/\..*$/, '')
+  if (!value) return value
+
+  // First, standardize comma to dot for decimal separator
+  var standardizedValue = value.replace(/,/g, '.')
+
+  // If decimals are not allowed, remove dot and everything after it
+  if (!allowDecimals) {
+    return standardizedValue.replace(/\..*$/, '')
+  }
+
+  return standardizedValue
 }
 
 // ====================
@@ -800,13 +805,16 @@ function setupCellEventListeners() {
           // Continue with normal processing (formatting, validation, saving)
           // but skip the decimal filtering step
         } else {
-          // Normal user input - apply decimal filtering if needed
-          // Filter decimal input if not allowed
-          if (!params.allowDecimals) {
-            var filteredValue = filterDecimalInput(rawValue, params.allowDecimals)
-            if (filteredValue !== rawValue) {
-              this.value = filteredValue
-              rawValue = filteredValue
+          // Normal user input - apply decimal filtering (includes comma->dot conversion)
+          var filteredValue = filterDecimalInput(rawValue, params.allowDecimals)
+          if (filteredValue !== rawValue) {
+            this.value = filteredValue
+            rawValue = filteredValue
+            // Try to maintain cursor position
+            try {
+              this.setSelectionRange(cursorPosition, cursorPosition)
+            } catch (e) {
+              debugLog('Error setting cursor position:', e)
             }
           }
         }
@@ -910,20 +918,61 @@ function setupCellEventListeners() {
         updateTotals(params)
       })
 
-      // Handle keypress for decimal restriction
-      if (!params.allowDecimals) {
-        input.addEventListener('keypress', function (e) {
-          // Prevent decimal point entry
+      // Handle keypress for decimal separator conversion
+      input.addEventListener('keypress', function (e) {
+        if (!params.allowDecimals) {
+          // Prevent decimal point entry (both comma and dot)
           if (e.key === '.' || e.key === ',') {
             e.preventDefault()
           }
-        })
-      }
+        } else {
+          // Convert comma to dot for decimal separator (user-friendly)
+          if (e.key === ',') {
+            e.preventDefault()
+            // Insert a dot instead
+            var start = this.selectionStart
+            var end = this.selectionEnd
+            var value = this.value
+            this.value = value.substring(0, start) + '.' + value.substring(end)
+            this.setSelectionRange(start + 1, start + 1)
+            // Trigger input event to handle formatting and validation
+            this.dispatchEvent(new Event('input', { bubbles: true }))
+            return
+          }
+        }
+      })
 
     } else {
       debugLog('Setting up STANDARD input handling for input:', input)
-      // Standard input handling with debouncing
+      // Standard input handling with debouncing AND comma-to-dot conversion
       input.addEventListener('input', function () {
+        // Always convert commas to dots for numeric inputs (prevent column splitting)
+        if (params.numbersAppearance || params.allowDecimals) {
+          var rawValue = this.value
+          var cursorPosition = this.selectionStart
+
+          // Check if this value matches the originally loaded value
+          var loadedValue = this.getAttribute('data-loaded-value')
+          var isLoadedValue = loadedValue && rawValue === loadedValue
+
+          if (!isLoadedValue) {
+            // Apply comma-to-dot conversion
+            var filteredValue = filterDecimalInput(rawValue, params.allowDecimals)
+            if (filteredValue !== rawValue) {
+              this.value = filteredValue
+              // Try to maintain cursor position
+              try {
+                this.setSelectionRange(cursorPosition, cursorPosition)
+              } catch (e) {
+                debugLog('Error setting cursor position:', e)
+              }
+            }
+          } else {
+            // Clear the loaded value flag after first check
+            this.removeAttribute('data-loaded-value')
+          }
+        }
+
         debouncedUpdate()
       })
 
@@ -938,6 +987,30 @@ function setupCellEventListeners() {
         var cell = this.closest('td')
         if (cell) {
           cell.classList.remove('focused-cell')
+        }
+      })
+
+      // Handle keypress for decimal separator conversion
+      input.addEventListener('keypress', function (e) {
+        if (!params.allowDecimals) {
+          // Prevent decimal point entry (both comma and dot)
+          if (e.key === '.' || e.key === ',') {
+            e.preventDefault()
+          }
+        } else {
+          // Convert comma to dot for decimal separator (user-friendly)
+          if (e.key === ',') {
+            e.preventDefault()
+            // Insert a dot instead
+            var start = this.selectionStart
+            var end = this.selectionEnd
+            var value = this.value
+            this.value = value.substring(0, start) + '.' + value.substring(end)
+            this.setSelectionRange(start + 1, start + 1)
+            // Trigger input event to handle any additional processing
+            this.dispatchEvent(new Event('input', { bubbles: true }))
+            return
+          }
         }
       })
     }
@@ -1024,23 +1097,23 @@ function updateAnswer() {
     if (!allCellsEmpty) break
   }
 
-  // CRITICAL: If all cells are empty, decide whether to set an empty answer or no answer
+  // CRITICAL: Handle empty state properly
   if (allCellsEmpty) {
     debugLog('All cells empty')
 
-    // ONLY set empty answer for plugin's own required logic
-    // For SurveyCTO's native required, we should NOT set any answer to let it work properly
     if (params.required === 1) {
       debugLog('Plugin required=1: setting empty answer to block progression')
       setAnswer('')
-      var hiddenInput = document.getElementById('answer-input')
-      if (hiddenInput) {
-        hiddenInput.value = ''
-      }
     } else {
-      debugLog('No plugin required: not setting answer to allow SurveyCTO native required to work')
-      // Don't call setAnswer() at all - let SurveyCTO handle required validation
-      // This allows SurveyCTO's native required field validation to trigger properly
+      debugLog('No plugin required: clearing answer to allow SurveyCTO native required to work')
+      // For SurveyCTO native required, we need to clear the answer entirely
+      // This allows SurveyCTO's built-in required validation to trigger
+      setAnswer('')
+    }
+
+    var hiddenInput = document.getElementById('answer-input')
+    if (hiddenInput) {
+      hiddenInput.value = ''
     }
     return
   }
@@ -1321,17 +1394,18 @@ function getValues(e) {
     }
   }
 
-  // CRITICAL: If all cells are empty, handle the same way as enhanced mode
+  // CRITICAL: Handle empty state properly
   if (!hasAnyValue) {
     debugLog('Legacy mode: All cells empty')
 
-    // ONLY set empty answer for plugin's own required logic
     if (required === 1) {
       debugLog('Legacy mode - Plugin required=1: setting empty answer to block progression')
       setAnswer('')
     } else {
-      debugLog('Legacy mode - No plugin required: not setting answer to allow SurveyCTO native required to work')
-      // Don't call setAnswer() at all - let SurveyCTO handle required validation
+      debugLog('Legacy mode - No plugin required: clearing answer to allow SurveyCTO native required to work')
+      // For SurveyCTO native required, we need to clear the answer entirely
+      // This allows SurveyCTO's built-in required validation to trigger
+      setAnswer('')
     }
     return ''
   }
