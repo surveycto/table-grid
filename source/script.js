@@ -832,10 +832,11 @@ function setupCellEventListeners() {
               // Set flag to prevent recursive formatting
               this._isFormatting = true
 
-              // Count digits (not commas) before cursor in the original value
+              // FIX: Improved cursor positioning for longer numbers
+              // Count all non-comma characters before cursor in the original value
               var digitsBeforeCursor = 0
               for (var j = 0; j < Math.min(cursorPosition, rawValue.length); j++) {
-                if (rawValue[j] !== ',') {
+                if (rawValue[j] !== ',' && rawValue[j] !== ' ') {
                   digitsBeforeCursor++
                 }
               }
@@ -843,24 +844,23 @@ function setupCellEventListeners() {
               // Set the formatted value
               this.value = formatted
 
-              // Find the new cursor position by counting the same number of digits in formatted value
+              // Find the new cursor position by counting the same number of non-comma characters
               var newPosition = 0
               var digitCount = 0
               for (var k = 0; k < formatted.length; k++) {
-                if (formatted[k] !== ',') {
+                if (formatted[k] !== ',' && formatted[k] !== ' ') {
                   digitCount++
-                  if (digitCount >= digitsBeforeCursor) {
-                    newPosition = k + 1
-                    break
-                  }
-                } else if (digitCount >= digitsBeforeCursor) {
-                  newPosition = k
+                }
+                if (digitCount === digitsBeforeCursor) {
+                  newPosition = k + 1
                   break
                 }
               }
 
-              // Ensure newPosition is valid
-              if (newPosition === 0) {
+              // Handle edge cases
+              if (newPosition === 0 && digitsBeforeCursor === 0) {
+                newPosition = 0
+              } else if (newPosition === 0) {
                 newPosition = formatted.length
               }
 
@@ -1127,17 +1127,31 @@ function updateAnswer() {
     var validation = validateAllInputs(params, false) // Use hard validation messages
 
     if (!validation.valid) {
-      // HARD validation: Set blank answer to block progression
-      // This works with both plugin required=1 and SurveyCTO's native required
-      debugLog('Hard validation failed: ' + validation.invalidCount + ' invalid inputs - setting blank answer to block progression')
+      // HARD validation: Preserve user input but block progression
+      // FIX: Store the answer so values aren't lost when navigating back
+      debugLog('Hard validation failed: ' + validation.invalidCount + ' invalid inputs - preserving input but blocking progression')
 
-      // Set blank answer to block progression
-      setAnswer('')
-
+      // Store the invalid data in a separate attribute so we can restore it
       var hiddenInput = document.getElementById('answer-input')
       if (hiddenInput) {
-        hiddenInput.value = ''
+        hiddenInput.value = answer
+        hiddenInput.setAttribute('data-invalid-answer', answer)
       }
+
+      // FIX: Ensure validation messages are prominently displayed
+      // Focus on the first invalid input to make the validation message visible
+      if (validation.invalidInputs && validation.invalidInputs.length > 0) {
+        var firstInvalidInput = validation.invalidInputs[0].input
+        setTimeout(function () {
+          if (firstInvalidInput && !firstInvalidInput.classList.contains('focused')) {
+            // Scroll into view if needed
+            firstInvalidInput.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }
+        }, 100)
+      }
+
+      // Set blank answer to block progression but keep data in memory
+      setAnswer('')
       return
     }
   }
@@ -1165,6 +1179,8 @@ function updateAnswer() {
   var hiddenInput = document.getElementById('answer-input')
   if (hiddenInput) {
     hiddenInput.value = answer
+    // Clear invalid answer flag when data becomes valid
+    hiddenInput.removeAttribute('data-invalid-answer')
   }
 }
 
@@ -1204,6 +1220,16 @@ function checkAllRequired(cellValues) {
 
 function loadExistingData(params) {
   var currentAnswer = fieldProperties.CURRENT_ANSWER
+
+  // FIX: Check for preserved invalid answer if current answer is empty
+  if (!currentAnswer) {
+    var hiddenInput = document.getElementById('answer-input')
+    if (hiddenInput && hiddenInput.getAttribute('data-invalid-answer')) {
+      currentAnswer = hiddenInput.getAttribute('data-invalid-answer')
+      debugLog('Restoring previously invalid answer:', currentAnswer)
+    }
+  }
+
   if (!currentAnswer) return
 
   try {
@@ -1246,8 +1272,40 @@ function loadExistingData(params) {
     setTimeout(function () {
       updateTotals(params)
     }, 100)
+
+    // FIX: Restore validation state after loading data (Issue 4)
+    // This ensures validation styling (yellow/red) is preserved when navigating back
+    setTimeout(function () {
+      restoreValidationState(params)
+    }, 150)
   } catch (error) {
     debugLog('Error loading existing data:', error)
+  }
+}
+
+/**
+ * Restore validation state for all inputs after loading data
+ * This ensures validation styling persists when navigating back to the field
+ */
+function restoreValidationState(params) {
+  debugLog('Restoring validation state after data load')
+
+  var hasValidationConstraints = params.minValue !== null || params.maxValue !== null || params.allowDecimals === false
+  if (!hasValidationConstraints) {
+    debugLog('No validation constraints, skipping validation state restore')
+    return
+  }
+
+  // Determine if we should use soft or hard validation
+  var useSoftValidation = !params.validationStrict
+
+  var inputs = document.querySelectorAll('.cell-input')
+  for (var i = 0; i < inputs.length; i++) {
+    var input = inputs[i]
+    if (input.value) {
+      var validation = validateNumericInput(input.value, params, useSoftValidation)
+      showValidationMessage(input, validation.message, validation.valid, useSoftValidation)
+    }
   }
 }
 
