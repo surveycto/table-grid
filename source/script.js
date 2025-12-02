@@ -9,7 +9,8 @@ var DEBUG_MODE = false
 
 // Debug logging function
 function debugLog() {
-  if (DEBUG_MODE && console && console.log) {
+  if (!DEBUG_MODE) return
+  if (typeof console !== 'undefined' && console.log) {
     console.log.apply(console, arguments)
   }
 }
@@ -19,9 +20,10 @@ function debugLog() {
 // ====================
 
 // Detect platform for platform-specific behaviors
-var isWebCollect = (document.body.className.indexOf('web-collect') >= 0)
-var isAndroid = (document.body.className.indexOf('android-collect') >= 0)
-var isIOS = (document.body.className.indexOf('ios-collect') >= 0)
+var bodyClass = (document.body && document.body.className) || ''
+var isWebCollect = (bodyClass.indexOf('web-collect') >= 0)
+var isAndroid = (bodyClass.indexOf('android-collect') >= 0)
+var isIOS = (bodyClass.indexOf('ios-collect') >= 0)
 
 debugLog('Platform detection:', {
   isWebCollect: isWebCollect,
@@ -32,6 +34,20 @@ debugLog('Platform detection:', {
 // ====================
 // PARAMETER PARSING FUNCTIONS
 // ====================
+
+// Parse a positive integer with fallback
+function parsePositiveInt(value, fallback) {
+  var n = parseInt(value, 10)
+  if (isNaN(n) || n < 1) return fallback
+  return n
+}
+
+// Parse a numeric value or return null
+function parseNumericOrNull(value) {
+  if (value === '' || value === null || value === undefined) return null
+  var n = parseFloat(value)
+  return isNaN(n) ? null : n
+}
 
 function safeGetPluginParameter(name, defaultValue) {
   defaultValue = defaultValue !== undefined ? defaultValue : null
@@ -78,8 +94,8 @@ function getTableParameters() {
   debugLog('Raw parameters:', rawParams)
 
   var params = {
-    rows: Math.max(1, parseInt(rawParams.rows)),
-    cols: Math.max(1, parseInt(rawParams.cols)),
+    rows: parsePositiveInt(rawParams.rows, 3),
+    cols: parsePositiveInt(rawParams.cols, 4),
     rowLabels: parseLabels(rawParams.row_labels),
     colLabels: parseLabels(rawParams.col_labels),
     showHistorical: rawParams.show_historical === 'true',
@@ -88,14 +104,13 @@ function getTableParameters() {
     historicalLabel: safeGetPluginParameter('historical_label', 'Last Year'),
     numbersAppearance: fieldProperties.APPEARANCE && fieldProperties.APPEARANCE.includes('numbers'),
 
-    // SIMPLIFIED: Only plugin's required parameter (let SurveyCTO handle native required)
-    required: parseInt(safeGetPluginParameter('required', '0')), // Keep as 0 or 1, not boolean
+    required: parsePositiveInt(safeGetPluginParameter('required', '0'), 0),
 
     total: rawParams.total,
     formatNumbers: rawParams.format_numbers === 'true',
-    minValue: rawParams.min_value !== '' ? parseFloat(rawParams.min_value) : null,
-    maxValue: rawParams.max_value !== '' ? parseFloat(rawParams.max_value) : null,
-    allowDecimals: rawParams.allow_decimals !== 'false', // Allow decimals by default (true unless explicitly 'false')
+    minValue: parseNumericOrNull(rawParams.min_value),
+    maxValue: parseNumericOrNull(rawParams.max_value),
+    allowDecimals: rawParams.allow_decimals !== 'false',
     validationStrict: rawParams.validation_strict === 'true',
 
     // Constraint message parameters
@@ -125,7 +140,10 @@ function parseLabels(labelString) {
   debugLog('Parsing labels - original:', labelString, 'cleaned:', cleanString)
 
   if (!cleanString) return []
-  return cleanString.split(',').map(function (s) { return s.trim() }).filter(function (s) { return s.length > 0 })
+
+  // Support both comma and pipe separators (pipe for legacy compatibility)
+  var delimiter = cleanString.indexOf('|') >= 0 ? '|' : ','
+  return cleanString.split(delimiter).map(function (s) { return s.trim() }).filter(function (s) { return s.length > 0 })
 }
 
 function parseHistoricalData(dataString) {
@@ -197,11 +215,11 @@ function shouldUseEnhancedMode() {
 // Unified parameter extraction - works for both modes
 var unifiedParams = {
   // Core parameters (with backward compatibility)
-  cols: parseInt(getUnifiedParameter(['cols', 'columns'], '4')),
-  rows: parseInt(getUnifiedParameter(['rows'], '3')),
+  cols: parsePositiveInt(getUnifiedParameter(['cols', 'columns'], '4'), 4),
+  rows: parsePositiveInt(getUnifiedParameter(['rows'], '3'), 3),
   colLabels: getUnifiedParameter(['col_labels', 'column_headers'], ''),
   rowLabels: getUnifiedParameter(['row_labels', 'row_headers'], ''),
-  required: parseInt(getUnifiedParameter(['required'], '0')),
+  required: parsePositiveInt(getUnifiedParameter(['required'], '0'), 0),
 
   // Enhanced parameters
   showHistorical: getUnifiedParameter(['show_historical'], 'false') === 'true',
@@ -210,9 +228,9 @@ var unifiedParams = {
   historicalLabel: getUnifiedParameter(['historical_label'], 'Last Year'),
   total: getUnifiedParameter(['total'], ''),
   formatNumbers: getUnifiedParameter(['format_numbers'], 'false') === 'true',
-  minValue: getUnifiedParameter(['min_value'], ''),
-  maxValue: getUnifiedParameter(['max_value'], ''),
-  allowDecimals: getUnifiedParameter(['allow_decimals'], 'true') !== 'false', // Allow decimals by default
+  minValue: parseNumericOrNull(getUnifiedParameter(['min_value'], '')),
+  maxValue: parseNumericOrNull(getUnifiedParameter(['max_value'], '')),
+  allowDecimals: getUnifiedParameter(['allow_decimals'], 'true') !== 'false',
   validationStrict: getUnifiedParameter(['validation_strict'], 'false') === 'true'
 }
 
@@ -252,8 +270,23 @@ function unformatNumber(formattedValue) {
 function filterDecimalInput(value, allowDecimals) {
   if (!value) return value
 
-  // First, standardize comma to dot for decimal separator
-  var standardizedValue = value.replace(/,/g, '.')
+  // Value should already be unformatted (no thousands separators) at this point
+  // Only convert comma to dot if it appears to be a decimal separator
+  var commaCount = (value.match(/,/g) || []).length
+  var dotCount = (value.match(/\./g) || []).length
+
+  var standardizedValue = value
+  // Only convert comma to dot if it's likely a decimal separator:
+  // - exactly one comma, no dots already present
+  // - and the part after comma has 1-2 digits (typical decimal) or isn't exactly 3 digits
+  if (commaCount === 1 && dotCount === 0) {
+    var commaIndex = value.indexOf(',')
+    var afterComma = value.substring(commaIndex + 1)
+    var isLikelyDecimal = afterComma.length <= 2 || !/^\d{3}$/.test(afterComma)
+    if (isLikelyDecimal) {
+      standardizedValue = value.replace(',', '.')
+    }
+  }
 
   // If decimals are not allowed, remove dot and everything after it
   if (!allowDecimals) {
@@ -712,7 +745,7 @@ function createCellContent(params, rowIndex, colIndex) {
   var colLabel = params.colLabels[colIndex] || 'Column ' + (colIndex + 1)
   input.setAttribute('aria-label', 'Current value for ' + rowLabel + ' ' + colLabel)
 
-  // SIMPLIFIED: Only plugin required field handling
+  // Plugin required field handling
   if (params.required === 1) {
     input.required = true
     input.setAttribute('aria-required', 'true')
@@ -805,38 +838,50 @@ function setupCellEventListeners() {
           // Continue with normal processing (formatting, validation, saving)
           // but skip the decimal filtering step
         } else {
-          // Normal user input - apply decimal filtering (includes comma->dot conversion)
-          var filteredValue = filterDecimalInput(rawValue, params.allowDecimals)
-          if (filteredValue !== rawValue) {
-            this.value = filteredValue
+          // Unformat first to remove thousands separators, then apply decimal filtering
+          var workingValue = params.formatNumbers ? unformatNumber(rawValue) : rawValue
+
+          // Apply decimal filtering on the unformatted value
+          var filteredValue = filterDecimalInput(workingValue, params.allowDecimals)
+
+          if (filteredValue !== workingValue) {
+            // Value was modified by decimal filtering
             rawValue = filteredValue
-            // Try to maintain cursor position
-            try {
-              this.setSelectionRange(cursorPosition, cursorPosition)
-            } catch (e) {
-              debugLog('Error setting cursor position:', e)
+            // We'll update the input value below in the formatting section
+            // For now, just update if no formatting will be applied
+            if (!params.formatNumbers) {
+              this.value = filteredValue
+              // Try to maintain cursor position
+              try {
+                this.setSelectionRange(cursorPosition, cursorPosition)
+              } catch (e) {
+                debugLog('Error setting cursor position:', e)
+              }
             }
+          } else {
+            // Use the unformatted value for further processing
+            rawValue = workingValue
           }
         }
 
         // Real-time formatting with smart cursor positioning
         if (params.formatNumbers && rawValue) {
-          // Remove existing formatting to get clean number
-          var unformatted = unformatNumber(rawValue)
+          // rawValue is already unformatted at this point
+          var unformatted = rawValue
 
           if (unformatted && !isNaN(unformatted)) {
             var formatted = formatNumber(unformatted, true)
 
-            // Always update if different, to ensure formatting is applied
-            if (formatted !== rawValue) {
+            // Always update if different from the current display value
+            if (formatted !== this.value) {
               // Set flag to prevent recursive formatting
               this._isFormatting = true
 
-              // FIX: Improved cursor positioning for longer numbers
-              // Count all non-comma characters before cursor in the original value
+              // Improved cursor positioning for longer numbers
+              var originalValue = this.value
               var digitsBeforeCursor = 0
-              for (var j = 0; j < Math.min(cursorPosition, rawValue.length); j++) {
-                if (rawValue[j] !== ',' && rawValue[j] !== ' ') {
+              for (var j = 0; j < Math.min(cursorPosition, originalValue.length); j++) {
+                if (originalValue[j] !== ',' && originalValue[j] !== ' ') {
                   digitsBeforeCursor++
                 }
               }
@@ -1089,7 +1134,8 @@ function updateAnswer() {
   for (var i = 0; i < answerMatrix.length; i++) {
     var cells = answerMatrix[i].split(',')
     for (var j = 0; j < cells.length; j++) {
-      if (cells[j] && cells[j].trim() !== '') {
+      // Handle '0' as a valid value (not empty)
+      if (cells[j] !== undefined && cells[j] !== null && cells[j].trim() !== '') {
         allCellsEmpty = false
         break
       }
@@ -1127,30 +1173,28 @@ function updateAnswer() {
     var validation = validateAllInputs(params, false) // Use hard validation messages
 
     if (!validation.valid) {
-      // HARD validation: Preserve user input but block progression
-      // FIX: Store the answer so values aren't lost when navigating back
-      debugLog('Hard validation failed: ' + validation.invalidCount + ' invalid inputs - preserving input but blocking progression')
+      // HARD validation: Block progression by NOT setting the answer
+      // When used with SurveyCTO's native required=yes, this prevents moving forward
+      debugLog('Hard validation failed: ' + validation.invalidCount + ' invalid inputs - blocking progression')
 
-      // Store the invalid data in a separate attribute so we can restore it
+      // Store values in hidden input for display persistence, but don't set the official answer
       var hiddenInput = document.getElementById('answer-input')
       if (hiddenInput) {
         hiddenInput.value = answer
-        hiddenInput.setAttribute('data-invalid-answer', answer)
+        hiddenInput.setAttribute('data-pending-answer', answer)
       }
 
-      // FIX: Ensure validation messages are prominently displayed
       // Focus on the first invalid input to make the validation message visible
       if (validation.invalidInputs && validation.invalidInputs.length > 0) {
         var firstInvalidInput = validation.invalidInputs[0].input
         setTimeout(function () {
           if (firstInvalidInput && !firstInvalidInput.classList.contains('focused')) {
-            // Scroll into view if needed
             firstInvalidInput.scrollIntoView({ behavior: 'smooth', block: 'center' })
           }
         }, 100)
       }
 
-      // Set blank answer to block progression but keep data in memory
+      // Clear the answer to block progression (SurveyCTO's required=yes will prevent moving forward)
       setAnswer('')
       return
     }
@@ -1220,50 +1264,61 @@ function checkAllRequired(cellValues) {
 
 function loadExistingData(params) {
   var currentAnswer = fieldProperties.CURRENT_ANSWER
-
-  // FIX: Check for preserved invalid answer if current answer is empty
-  if (!currentAnswer) {
-    var hiddenInput = document.getElementById('answer-input')
-    if (hiddenInput && hiddenInput.getAttribute('data-invalid-answer')) {
-      currentAnswer = hiddenInput.getAttribute('data-invalid-answer')
-      debugLog('Restoring previously invalid answer:', currentAnswer)
-    }
+  
+  // Also check for pending answer from failed validation (stored in hidden input)
+  var hiddenInput = document.getElementById('answer-input')
+  var pendingAnswer = hiddenInput ? hiddenInput.getAttribute('data-pending-answer') : null
+  
+  // Use pending answer if available and current answer is empty (validation was blocking)
+  if (!currentAnswer && pendingAnswer) {
+    currentAnswer = pendingAnswer
+    debugLog('Using pending answer from failed validation:', currentAnswer)
   }
 
   if (!currentAnswer) return
 
+  debugLog('Loading existing data:', currentAnswer)
+
   try {
+    // Detect data format: enhanced mode uses 'row1col1,row1col2|row2col1,row2col2'
+    // Legacy mode uses flat 'val1|val2|val3|val4|'
     var rows = currentAnswer.split('|')
+    var totalCells = params.rows * params.cols
+    
+    // Detect if this is legacy format (flat pipe-separated with trailing pipe)
+    // Legacy format has more pipe segments than rows (one per cell + possible trailing empty)
+    var isLegacyFormat = rows.length > params.rows && 
+                         (rows.length === totalCells || rows.length === totalCells + 1)
+    
+    debugLog('Data format detection - isLegacyFormat:', isLegacyFormat, 'rows:', rows.length, 'expected rows:', params.rows)
 
-    for (var rowIndex = 0; rowIndex < Math.min(rows.length, params.rows); rowIndex++) {
-      var cells = rows[rowIndex].split(',')
-
-      for (var colIndex = 0; colIndex < Math.min(cells.length, params.cols); colIndex++) {
-        var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
-        if (input && cells[colIndex]) {
-          var value = cells[colIndex]
-
-          // Store the original loaded value for comparison
-          input.setAttribute('data-loaded-value', value)
-
-          // Format the value if number formatting is enabled AND the input is not focused
-          if (params.formatNumbers && value && !isNaN(value) && input !== document.activeElement) {
-            value = formatNumber(value, true)
+    if (isLegacyFormat) {
+      // Legacy format: flat pipe-separated values
+      var cellIndex = 0
+      for (var rowIndex = 0; rowIndex < params.rows; rowIndex++) {
+        for (var colIndex = 0; colIndex < params.cols; colIndex++) {
+          var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
+          var value = rows[cellIndex] || ''
+          cellIndex++
+          
+          if (input && value && value.trim() !== '') {
+            loadValueIntoInput(input, value, params)
           }
+        }
+      }
+    } else {
+      // Enhanced format: comma-separated within rows, pipe between rows
+      for (var rowIndex = 0; rowIndex < Math.min(rows.length, params.rows); rowIndex++) {
+        var cells = rows[rowIndex].split(',')
 
-          // Set a flag to indicate we're loading data (prevent filtering during load)
-          input.setAttribute('data-loading', 'true')
-          input.value = value
-
-          // Remove the loading flag after setting the value
-          // Use requestAnimationFrame to ensure it happens after the input event
-          requestAnimationFrame(function (inp) {
-            return function () {
-              requestAnimationFrame(function () {
-                inp.removeAttribute('data-loading')
-              })
-            }
-          }(input))
+        for (var colIndex = 0; colIndex < Math.min(cells.length, params.cols); colIndex++) {
+          var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
+          var value = cells[colIndex]
+          
+          // Check for actual value (not just truthy - handle '0' correctly)
+          if (input && value !== undefined && value !== null && value.trim() !== '') {
+            loadValueIntoInput(input, value, params)
+          }
         }
       }
     }
@@ -1273,14 +1328,36 @@ function loadExistingData(params) {
       updateTotals(params)
     }, 100)
 
-    // FIX: Restore validation state after loading data (Issue 4)
-    // This ensures validation styling (yellow/red) is preserved when navigating back
+    // Restore validation state after loading data
     setTimeout(function () {
       restoreValidationState(params)
     }, 150)
   } catch (error) {
     debugLog('Error loading existing data:', error)
   }
+}
+
+function loadValueIntoInput(input, value, params) {
+  // Store the original loaded value for comparison
+  input.setAttribute('data-loaded-value', value)
+
+  // Format the value if number formatting is enabled AND the input is not focused
+  if (params.formatNumbers && value && !isNaN(value) && input !== document.activeElement) {
+    value = formatNumber(value, true)
+  }
+
+  // Set a flag to indicate we're loading data (prevent filtering during load)
+  input.setAttribute('data-loading', 'true')
+  input.value = value
+
+  // Remove the loading flag after setting the value
+  requestAnimationFrame(function (inp) {
+    return function () {
+      requestAnimationFrame(function () {
+        inp.removeAttribute('data-loading')
+      })
+    }
+  }(input))
 }
 
 /**
@@ -1564,7 +1641,6 @@ function setFocus() {
 
 /**
  * HTML entity handling - converts HTML entities back to actual characters
- * Fixes rendering issues with field references containing HTML
  * @param {string} str - String containing HTML entities
  * @returns {string} String with entities decoded
  */

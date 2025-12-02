@@ -76,9 +76,9 @@
    ==================== */
 
 /* Base table styling that applies to both modes */
-table,
-.data-table,
-.gridTable {
+#table-container table,
+#table-container .data-table,
+#table-container .gridTable {
     border-collapse: collapse;
     border: 2px solid var(--border-dark);
     letter-spacing: 0.5px;
@@ -90,12 +90,12 @@ table,
 }
 
 /* Base cell styling for both modes */
-td,
-th,
-.data-table th,
-.data-table td,
-.gridTable th,
-.gridTable td {
+#table-container td,
+#table-container th,
+#table-container .data-table th,
+#table-container .data-table td,
+#table-container .gridTable th,
+#table-container .gridTable td {
     border: 1px solid var(--border-light);
     padding: 8px;
     text-align: center;
@@ -103,9 +103,9 @@ th,
 }
 
 /* Base input styling for both modes */
-input,
-.cell-input,
-.gridTable input.cell {
+#table-container input,
+#table-container .cell-input,
+#table-container .gridTable input.cell {
     box-sizing: border-box;
     text-align: center;
     border: 2px solid var(--border-light);
@@ -119,17 +119,17 @@ input,
 }
 
 /* Focus states for all inputs */
-input:focus,
-.cell-input:focus,
-.gridTable input.cell:focus {
+#table-container input:focus,
+#table-container .cell-input:focus,
+#table-container .gridTable input.cell:focus {
     border-color: var(--primary-blue);
     box-shadow: 0 0 0 3px rgba(4, 124, 194, 0.1);
 }
 
 /* Hover states for all inputs */
-input:hover,
-.cell-input:hover,
-.gridTable input.cell:hover {
+#table-container input:hover,
+#table-container .cell-input:hover,
+#table-container .gridTable input.cell:hover {
     border-color: var(--border-medium);
 }
 
@@ -141,7 +141,7 @@ input:hover,
     overflow: auto;
     width: 100%;
     margin: 0;
-    /* FIXED: Remove margin to prevent double-spacing with parent .table-container */
+    /* Remove margin to prevent double-spacing with parent .table-container */
 }
 
 .gridTable {
@@ -690,26 +690,22 @@ input:hover,
     font-family: var(--font-family-primary);
     border-radius: 6px;
     z-index: 10000;
-    white-space: nowrap;
     box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
     pointer-events: none;
     max-width: 300px;
     word-wrap: break-word;
     white-space: normal;
-
-    /* Hide by default - only show on focused cell */
     opacity: 0;
     visibility: hidden;
     transition: opacity 0.2s ease, visibility 0.2s ease;
+}
 
-    /* Arrow pointer */
-    &::before {
-        content: '';
-        position: absolute;
-        width: 0;
-        height: 0;
-        border-style: solid;
-    }
+.validation-message::before {
+    content: '';
+    position: absolute;
+    width: 0;
+    height: 0;
+    border-style: solid;
 }
 
 /* Soft validation messages (different styling) */

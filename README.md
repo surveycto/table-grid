@@ -104,7 +104,7 @@ The following parameters enable advanced features:
 | `min_value` | Minimum allowed value for numeric inputs. |
 | `max_value` | Maximum allowed value for numeric inputs. |
 | `allow_decimals` | Set to `false` to restrict inputs to whole numbers only. Default is `true`. |
-| `validation_strict` | Set to `true` to prevent form progression when validation fails (hard validation). Set to `false` for soft validation with warnings. Default is `false`. |
+| `validation_strict` | Set to `true` to prevent form progression when validation fails (hard validation). **Important:** Must be used with SurveyCTO's native `required` set to `yes` for progression blocking to work. Set to `false` for soft validation with warnings. Default is `false`. |
 
 #### Validation Message Customization
 
@@ -130,7 +130,7 @@ Customize validation messages for better user experience:
 #### Validation Modes
 
 - **Soft Validation** (`validation_strict=false`): Shows amber/orange warning messages but allows form progression. Ideal for recommendations or guidelines.
-- **Hard Validation** (`validation_strict=true`): Shows red error messages and prevents form progression until issues are resolved. Required for strict data quality.
+- **Hard Validation** (`validation_strict=true`): Shows red error messages and prevents form progression until issues are resolved. Required for strict data quality. **Note:** For hard validation to block progression, the field must also have `required` set to `yes` in the SurveyCTO form design.
 
 #### Example Usage
 
