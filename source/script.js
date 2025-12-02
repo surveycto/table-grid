@@ -246,18 +246,38 @@ var required = unifiedParams.required
 // ====================
 
 function formatNumber(value, shouldFormat) {
-  if (!shouldFormat || !value || value === '' || isNaN(value)) {
+  if (!shouldFormat || !value || value === '') {
     return value
   }
 
-  var num = parseFloat(value)
+  var stringValue = value.toString()
+  
+  // Check if user is typing a decimal (trailing dot or incomplete decimal)
+  var hasTrailingDot = stringValue.endsWith('.')
+  var decimalParts = stringValue.split('.')
+  var decimalSuffix = ''
+  
+  if (hasTrailingDot) {
+    // Preserve the trailing dot for user who is typing
+    decimalSuffix = '.'
+  } else if (decimalParts.length === 2 && decimalParts[1] !== '') {
+    // Has decimal portion - we'll preserve it after formatting the integer part
+    decimalSuffix = '.' + decimalParts[1]
+  }
+
+  // Parse the integer part only
+  var integerPart = decimalParts[0]
+  var num = parseFloat(integerPart)
+  
   if (isNaN(num)) return value
 
-  // Format with commas for thousands separator
-  return num.toLocaleString('en-US', {
-    maximumFractionDigits: 10, // Preserve decimal places
-    useGrouping: true // Ensure grouping is enabled
+  // Format the integer part with commas for thousands separator
+  var formattedInteger = num.toLocaleString('en-US', {
+    maximumFractionDigits: 0,
+    useGrouping: true
   })
+
+  return formattedInteger + decimalSuffix
 }
 
 function unformatNumber(formattedValue) {
