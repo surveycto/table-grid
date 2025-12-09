@@ -251,12 +251,12 @@ function formatNumber(value, shouldFormat) {
   }
 
   var stringValue = value.toString()
-  
+
   // Check if user is typing a decimal (trailing dot or incomplete decimal)
   var hasTrailingDot = stringValue.endsWith('.')
   var decimalParts = stringValue.split('.')
   var decimalSuffix = ''
-  
+
   if (hasTrailingDot) {
     // Preserve the trailing dot for user who is typing
     decimalSuffix = '.'
@@ -268,7 +268,7 @@ function formatNumber(value, shouldFormat) {
   // Parse the integer part only
   var integerPart = decimalParts[0]
   var num = parseFloat(integerPart)
-  
+
   if (isNaN(num)) return value
 
   // Format the integer part with commas for thousands separator
@@ -1284,11 +1284,11 @@ function checkAllRequired(cellValues) {
 
 function loadExistingData(params) {
   var currentAnswer = fieldProperties.CURRENT_ANSWER
-  
+
   // Also check for pending answer from failed validation (stored in hidden input)
   var hiddenInput = document.getElementById('answer-input')
   var pendingAnswer = hiddenInput ? hiddenInput.getAttribute('data-pending-answer') : null
-  
+
   // Use pending answer if available and current answer is empty (validation was blocking)
   if (!currentAnswer && pendingAnswer) {
     currentAnswer = pendingAnswer
@@ -1304,12 +1304,12 @@ function loadExistingData(params) {
     // Legacy mode uses flat 'val1|val2|val3|val4|'
     var rows = currentAnswer.split('|')
     var totalCells = params.rows * params.cols
-    
+
     // Detect if this is legacy format (flat pipe-separated with trailing pipe)
     // Legacy format has more pipe segments than rows (one per cell + possible trailing empty)
-    var isLegacyFormat = rows.length > params.rows && 
-                         (rows.length === totalCells || rows.length === totalCells + 1)
-    
+    var isLegacyFormat = rows.length > params.rows &&
+      (rows.length === totalCells || rows.length === totalCells + 1)
+
     debugLog('Data format detection - isLegacyFormat:', isLegacyFormat, 'rows:', rows.length, 'expected rows:', params.rows)
 
     if (isLegacyFormat) {
@@ -1320,7 +1320,7 @@ function loadExistingData(params) {
           var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
           var value = rows[cellIndex] || ''
           cellIndex++
-          
+
           if (input && value && value.trim() !== '') {
             loadValueIntoInput(input, value, params)
           }
@@ -1334,7 +1334,7 @@ function loadExistingData(params) {
         for (var colIndex = 0; colIndex < Math.min(cells.length, params.cols); colIndex++) {
           var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
           var value = cells[colIndex]
-          
+
           // Check for actual value (not just truthy - handle '0' correctly)
           if (input && value !== undefined && value !== null && value.trim() !== '') {
             loadValueIntoInput(input, value, params)
