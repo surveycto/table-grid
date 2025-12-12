@@ -1149,6 +1149,13 @@ function updateAnswer() {
 
   var answer = answerMatrix.join('|')
 
+  // ALWAYS persist cell values to metadata for recovery when navigating back
+  // This ensures partial data is never lost, even when validation blocks progression
+  if (typeof setMetaData === 'function') {
+    setMetaData(answer, true)
+    debugLog('Saved cell values to metadata for recovery')
+  }
+
   // Check if all cells are empty (critical for SurveyCTO's native required field handling)
   var allCellsEmpty = true
   for (var i = 0; i < answerMatrix.length; i++) {
@@ -1285,14 +1292,24 @@ function checkAllRequired(cellValues) {
 function loadExistingData(params) {
   var currentAnswer = fieldProperties.CURRENT_ANSWER
 
-  // Also check for pending answer from failed validation (stored in hidden input)
-  var hiddenInput = document.getElementById('answer-input')
-  var pendingAnswer = hiddenInput ? hiddenInput.getAttribute('data-pending-answer') : null
+  // Fallback 1: Check metadata for persisted values (survives navigation, form exit/resume, crashes)
+  // This is the primary recovery mechanism for partial data that wasn't officially saved
+  if (!currentAnswer && typeof getMetaData === 'function') {
+    var metadataAnswer = getMetaData()
+    if (metadataAnswer) {
+      currentAnswer = metadataAnswer
+      debugLog('Recovered cell values from metadata:', currentAnswer)
+    }
+  }
 
-  // Use pending answer if available and current answer is empty (validation was blocking)
-  if (!currentAnswer && pendingAnswer) {
-    currentAnswer = pendingAnswer
-    debugLog('Using pending answer from failed validation:', currentAnswer)
+  // Fallback 2: Check for pending answer from failed validation (stored in hidden input)
+  if (!currentAnswer) {
+    var hiddenInput = document.getElementById('answer-input')
+    var pendingAnswer = hiddenInput ? hiddenInput.getAttribute('data-pending-answer') : null
+    if (pendingAnswer) {
+      currentAnswer = pendingAnswer
+      debugLog('Using pending answer from failed validation:', currentAnswer)
+    }
   }
 
   if (!currentAnswer) return
@@ -1547,6 +1564,12 @@ function getValues(e) {
     if (cellvalue && cellvalue.trim() !== '') {
       hasAnyValue = true
     }
+  }
+
+  // ALWAYS persist cell values to metadata for recovery when navigating back
+  if (typeof setMetaData === 'function') {
+    setMetaData(cellValues, true)
+    debugLog('Legacy mode: Saved cell values to metadata for recovery')
   }
 
   // CRITICAL: Handle empty state properly
