@@ -85,8 +85,8 @@ The following parameters maintain compatibility with existing forms:
 | --- | --- |
 | `columns` or `cols` | The number of columns to be displayed. |
 | `rows` | The number of rows to be displayed. |
-| `column_headers` or `col_labels` | The headings for each column. Use comma-separated format: `"Header 1, Header 2, Header 3"` or legacy pipe-separated format: `"Header 1|Header 2|Header 3"` |
-| `row_headers` or `row_labels`| The headings for each row. Use comma-separated format: `"Row 1, Row 2, Row 3"` or legacy pipe-separated format: `"Row 1|Row 2|Row 3"` |
+| `column_headers` or `col_labels` | The headings for each column. Use comma-separated format: `"Header 1, Header 2, Header 3"` or legacy pipe-separated format: `"Header 1\|Header 2\|Header 3"` |
+| `row_headers` or `row_labels`| The headings for each row. Use comma-separated format: `"Row 1, Row 2, Row 3"` or legacy pipe-separated format: `"Row 1\|Row 2\|Row 3"` |
 | `required` (optional)| Indicates whether some or all the cells in the table should have a value. When set to `1` all the cells in the table should have a value. Default is `0`.|
 
 #### Enhanced Parameters
