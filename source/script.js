@@ -5,7 +5,7 @@
 // ====================
 
 // Set to true for development debugging
-var DEBUG_MODE = false
+var DEBUG_MODE = true
 
 // Debug logging function
 function debugLog() {
@@ -539,10 +539,8 @@ function cleanupEventListeners() {
  * This minimizes horizontal scroll while ensuring readability.
  */
 function applyIntelligentHeaderSizing(params) {
-  var container = document.getElementById('table-container')
-  if (!container) {
-    container = document.documentElement
-  }
+  // Apply to document root for CSS variable inheritance
+  var root = document.documentElement
 
   var screenWidth = window.innerWidth || document.documentElement.clientWidth
   var effectiveCols = params.cols
@@ -552,62 +550,100 @@ function applyIntelligentHeaderSizing(params) {
     effectiveCols = params.cols * 2
   }
 
-  // Add 1 for row header column, and 1 more if showing row totals
-  var totalColumns = effectiveCols + 1 + (params.total === 'row' ? 1 : 0)
-
-  // Reserve space for row labels (approximately 15-20% of width)
-  var rowHeaderWidth = Math.min(200, Math.max(80, screenWidth * 0.15))
-
-  // Calculate available width for data columns
-  var availableWidth = screenWidth - rowHeaderWidth - 40 // 40px for padding/borders
-
-  // Calculate ideal column width
-  var idealColWidth = availableWidth / effectiveCols
-
   // Set min/max constraints based on column count
-  var colMinWidth, colMaxWidth, rowMaxWidth
+  var colMinWidth, colMaxWidth, rowWidth, rowMaxWidth
 
   if (effectiveCols <= 2) {
-    // Few columns: allow wider headers
+    // Few columns: allow wider row headers for readability
     colMinWidth = 100
     colMaxWidth = 250
-    rowMaxWidth = 250
+    rowWidth = 200
+    rowMaxWidth = 280
   } else if (effectiveCols <= 4) {
     // Medium number of columns
     colMinWidth = 80
     colMaxWidth = 180
-    rowMaxWidth = 200
+    rowWidth = 180
+    rowMaxWidth = 220
   } else if (effectiveCols <= 6) {
     // More columns: constrain widths
     colMinWidth = 70
     colMaxWidth = 150
-    rowMaxWidth = 150
+    rowWidth = 150
+    rowMaxWidth = 180
   } else {
     // Many columns: tight constraints to minimize scroll
     colMinWidth = 60
     colMaxWidth = 120
-    rowMaxWidth = 120
+    rowWidth = 120
+    rowMaxWidth = 150
   }
 
   // Adjust for screen size
   if (screenWidth <= 480) {
     colMinWidth = Math.max(50, colMinWidth - 20)
     colMaxWidth = Math.min(100, colMaxWidth - 30)
-    rowMaxWidth = Math.min(100, rowMaxWidth - 30)
+    rowWidth = Math.min(100, rowWidth - 30)
+    rowMaxWidth = Math.min(120, rowMaxWidth - 30)
   } else if (screenWidth <= 768) {
     colMinWidth = Math.max(60, colMinWidth - 10)
     colMaxWidth = Math.min(130, colMaxWidth - 20)
-    rowMaxWidth = Math.min(130, rowMaxWidth - 20)
+    rowWidth = Math.min(150, rowWidth - 20)
+    rowMaxWidth = Math.min(180, rowMaxWidth - 20)
   }
 
-  // Apply CSS custom properties
-  container.style.setProperty('--col-header-min-width', colMinWidth + 'px')
-  container.style.setProperty('--col-header-max-width', colMaxWidth + 'px')
-  container.style.setProperty('--row-header-max-width', rowMaxWidth + 'px')
+  // Apply CSS custom properties to document root for proper inheritance
+  root.style.setProperty('--col-header-min-width', colMinWidth + 'px')
+  root.style.setProperty('--col-header-max-width', colMaxWidth + 'px')
+  root.style.setProperty('--row-header-width', rowWidth + 'px')
+  root.style.setProperty('--row-header-max-width', rowMaxWidth + 'px')
 
-  debugLog('Intelligent sizing applied: cols=' + effectiveCols +
-           ', colMin=' + colMinWidth + 'px, colMax=' + colMaxWidth +
-           'px, rowMax=' + rowMaxWidth + 'px')
+  console.log('Intelligent sizing: cols=' + effectiveCols +
+           ', rowWidth=' + rowWidth + 'px, rowMax=' + rowMaxWidth + 'px')
+
+  // Return sizing values for direct application after table is built
+  return {
+    rowWidth: rowWidth,
+    rowMaxWidth: rowMaxWidth,
+    colMinWidth: colMinWidth,
+    colMaxWidth: colMaxWidth
+  }
+}
+
+/**
+ * Apply row header widths directly to elements (for table-layout: auto compatibility)
+ */
+function applyRowHeaderWidths(sizing) {
+  console.log('=== applyRowHeaderWidths called ===')
+
+  if (!sizing) {
+    console.log('ERROR: No sizing object provided')
+    return
+  }
+
+  var rowLabels = document.querySelectorAll('.row-label, .gridTable th[scope="row"]')
+  console.log('Found row labels:', rowLabels.length)
+
+  for (var i = 0; i < rowLabels.length; i++) {
+    rowLabels[i].style.width = sizing.rowWidth + 'px'
+    rowLabels[i].style.minWidth = '80px'
+    rowLabels[i].style.maxWidth = sizing.rowMaxWidth + 'px'
+    rowLabels[i].style.whiteSpace = 'normal'
+    rowLabels[i].style.wordWrap = 'break-word'
+    rowLabels[i].style.overflowWrap = 'break-word'
+    var computed = window.getComputedStyle(rowLabels[i])
+    console.log('Row label ' + i + ' - width: ' + computed.width + ', white-space: ' + computed.whiteSpace + ', overflow: ' + computed.overflow)
+  }
+
+  // Also apply to corner cell
+  var cornerCells = document.querySelectorAll('.row-label-header, .gridTable th:first-child')
+  console.log('Found corner cells:', cornerCells.length)
+
+  for (var j = 0; j < cornerCells.length; j++) {
+    cornerCells[j].style.width = sizing.rowWidth + 'px'
+    cornerCells[j].style.minWidth = '80px'
+    cornerCells[j].style.maxWidth = sizing.rowMaxWidth + 'px'
+  }
 }
 
 /**
@@ -618,19 +654,18 @@ function setupResizeHandler(params) {
   window.addEventListener('resize', function() {
     clearTimeout(resizeTimeout)
     resizeTimeout = setTimeout(function() {
-      applyIntelligentHeaderSizing(params)
+      var sizing = applyIntelligentHeaderSizing(params)
+      applyRowHeaderWidths(sizing)
     }, 150)
   })
 }
 
 function generateTable(params) {
-  debugLog('=== GENERATE TABLE DEBUG ===')
-  debugLog('Display mode:', params.historicalDisplay)
-  debugLog('Show historical:', params.showHistorical)
-  debugLog('Historical data:', params.historicalData)
+  console.log('=== GENERATE TABLE (ENHANCED MODE) ===')
+  console.log('Params: rows=' + params.rows + ', cols=' + params.cols)
 
   // Apply intelligent header sizing based on column count and screen size
-  applyIntelligentHeaderSizing(params)
+  var sizing = applyIntelligentHeaderSizing(params)
   setupResizeHandler(params)
 
   var container = document.getElementById('table-wrapper')
@@ -648,6 +683,33 @@ function generateTable(params) {
   table.setAttribute('role', 'table')
   table.setAttribute('aria-label', 'Data entry table with ' + (params.showHistorical ? 'historical data' : 'current data only'))
 
+  // Generate colgroup for explicit column widths (important for table-layout: fixed)
+  var colgroup = document.createElement('colgroup')
+
+  // Row header column
+  var rowHeaderCol = document.createElement('col')
+  rowHeaderCol.style.width = sizing.rowWidth + 'px'
+  colgroup.appendChild(rowHeaderCol)
+
+  // Calculate data column width - distribute remaining space evenly
+  var effectiveCols = params.cols
+  if (params.showHistorical && params.historicalDisplay === 'columns') {
+    effectiveCols = params.cols * 2
+  }
+  if (params.total === 'row') {
+    effectiveCols += 1
+  }
+
+  // Data columns - use equal distribution
+  for (var c = 0; c < effectiveCols; c++) {
+    var dataCol = document.createElement('col')
+    // Let data columns auto-size by not setting explicit width
+    colgroup.appendChild(dataCol)
+  }
+
+  table.appendChild(colgroup)
+  console.log('Generated colgroup with ' + (effectiveCols + 1) + ' columns')
+
   // Generate header
   debugLog('Generating header...')
   var thead = generateTableHeader(params)
@@ -662,13 +724,16 @@ function generateTable(params) {
   container.innerHTML = ''
   container.appendChild(table)
 
-  debugLog('Table generated, setting up events...')
+  // Apply row header widths directly after table is in DOM
+  applyRowHeaderWidths(sizing)
+
+  console.log('Table generated, setting up events...')
   setupCellEventListeners()
 
-  debugLog('Loading existing data...')
+  console.log('Loading existing data...')
   loadExistingData(params)
 
-  debugLog('=== END GENERATE TABLE DEBUG ===')
+  console.log('=== END GENERATE TABLE ===')
 }
 
 function generateTableHeader(params) {
@@ -1536,8 +1601,8 @@ if (prevAnswer != null) {
  * Generate legacy table using unified parameters for consistency
  */
 function generateLegacyTable() {
-  debugLog('=== GENERATING LEGACY TABLE ===')
-  debugLog('Using unified parameters:', unifiedParams)
+  console.log('=== GENERATE TABLE (LEGACY MODE) ===')
+  console.log('Params: rows=' + unifiedParams.rows + ', cols=' + unifiedParams.cols)
 
   // Apply intelligent header sizing for legacy mode
   var legacyParams = {
@@ -1547,7 +1612,7 @@ function generateLegacyTable() {
     historicalDisplay: 'inline',
     total: ''
   }
-  applyIntelligentHeaderSizing(legacyParams)
+  var sizing = applyIntelligentHeaderSizing(legacyParams)
   setupResizeHandler(legacyParams)
 
   // Determine field appearance
@@ -1590,7 +1655,7 @@ function generateLegacyTable() {
     if (i > 0) {
       // Data row - add row header
       var rowHeader = rowHeadersArray[i - 1] || 'Row ' + i
-      table += '<th scope="row" style="width:auto" class="default-hint-text-size" dir="auto">' + unEntity(rowHeader) + '</th>'
+      table += '<th scope="row" class="default-hint-text-size" dir="auto">' + unEntity(rowHeader) + '</th>'
     } else {
       // Header row - empty corner cell
       table += '<th scope="col" class="default-hint-text-size"></th>'
@@ -1625,9 +1690,11 @@ function generateLegacyTable() {
   var div = document.getElementById('table-holder')
   if (div) {
     div.innerHTML = table
-    debugLog('Legacy table generated successfully')
+    // Apply row header widths directly after table is in DOM
+    applyRowHeaderWidths(sizing)
+    console.log('Legacy table generated successfully')
   } else {
-    debugLog('Table holder not found')
+    console.log('Table holder not found')
   }
 }
 
@@ -1979,16 +2046,18 @@ function updateColumnTotals(params) {
  */
 function initializeTableGrid() {
   try {
-    debugLog('=== TABLE GRID INITIALIZATION ===')
+    console.log('=== TABLE GRID INITIALIZATION ===')
 
     // Determine which mode to use
     var useEnhancedMode = shouldUseEnhancedMode()
-    debugLog('Mode detection - Enhanced mode:', useEnhancedMode)
-    debugLog('Unified parameters:', unifiedParams)
+    console.log('Mode detection - Enhanced mode:', useEnhancedMode)
+    console.log('Unified params: rows=' + unifiedParams.rows + ', cols=' + unifiedParams.cols)
 
     if (useEnhancedMode) {
+      console.log('>>> Using ENHANCED mode')
       initializeEnhancedMode()
     } else {
+      console.log('>>> Using LEGACY mode')
       initializeLegacyMode()
     }
 
