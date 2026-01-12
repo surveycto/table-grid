@@ -159,6 +159,11 @@
     z-index: 100;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    min-width: var(--col-header-min-width, 80px);
+    max-width: var(--col-header-max-width, none);
 }
 
 .gridTable th[scope="row"] {
@@ -167,12 +172,16 @@
     color: var(--text-primary);
     border-right: 2px solid var(--border-medium) !important;
     text-align: left;
-    white-space: nowrap;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
     position: sticky;
     left: 0;
     z-index: 200;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
+    min-width: 80px;
+    max-width: var(--row-header-max-width, 200px);
 }
 
 /* Legacy table corner cell */
@@ -243,7 +252,14 @@
     width: auto;
 }
 
-.data-table th,
+.data-table th {
+    font-family: var(--font-family-primary);
+    font-size: var(--font-size-base);
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
 .data-table td {
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
@@ -256,12 +272,16 @@
     font-weight: 600;
     color: var(--text-primary);
     border-right: 2px solid var(--border-medium) !important;
-    white-space: nowrap;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
     position: sticky;
     left: 0;
     z-index: 200;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
+    min-width: 80px;
+    max-width: var(--row-header-max-width, 200px);
 }
 
 .row-label-header {
@@ -284,6 +304,11 @@
     z-index: 100;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    min-width: var(--col-header-min-width, 80px);
+    max-width: var(--col-header-max-width, none);
 }
 
 .historical-header {
@@ -296,6 +321,11 @@
     z-index: 100;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    min-width: var(--col-header-min-width, 80px);
+    max-width: var(--col-header-max-width, none);
 }
 
 .cell-content {
@@ -402,6 +432,8 @@
         --font-size-base: 0.8rem;
         --font-size-small: 0.7rem;
         --font-size-large: 0.9rem;
+        --row-header-max-width: 120px;
+        --col-header-max-width: 120px;
     }
 
     .data-table,
@@ -430,11 +462,17 @@
         display: block;
     }
 
+    /* Row headers wrap with reasonable max-width on tablet */
     .row-label,
     .gridTable th[scope="row"] {
-        max-width: 80px;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        max-width: var(--row-header-max-width, 120px);
+    }
+
+    /* Column headers wrap with reasonable max-width on tablet */
+    .current-header,
+    .historical-header,
+    .gridTable th[scope="col"] {
+        max-width: var(--col-header-max-width, 120px);
     }
 }
 
@@ -443,6 +481,8 @@
         --font-size-base: 0.75rem;
         --font-size-small: 0.65rem;
         --font-size-large: 0.85rem;
+        --row-header-max-width: 100px;
+        --col-header-max-width: 100px;
     }
 
     .cell-input,
@@ -452,9 +492,19 @@
         font-size: 0.7rem;
     }
 
+    /* Row headers more constrained on mobile */
     .row-label,
     .gridTable th[scope="row"] {
-        max-width: 60px;
+        max-width: var(--row-header-max-width, 100px);
+        min-width: 60px;
+    }
+
+    /* Column headers more constrained on mobile */
+    .current-header,
+    .historical-header,
+    .gridTable th[scope="col"] {
+        max-width: var(--col-header-max-width, 100px);
+        min-width: 60px;
     }
 
     .toggle-button {

@@ -531,11 +531,107 @@ function cleanupEventListeners() {
   }
 }
 
+/**
+ * Calculate and apply intelligent column/row header sizing based on:
+ * - Number of columns
+ * - Screen width
+ * - Whether historical columns are displayed
+ * This minimizes horizontal scroll while ensuring readability.
+ */
+function applyIntelligentHeaderSizing(params) {
+  var container = document.getElementById('table-container')
+  if (!container) {
+    container = document.documentElement
+  }
+
+  var screenWidth = window.innerWidth || document.documentElement.clientWidth
+  var effectiveCols = params.cols
+
+  // Double effective columns if showing historical in columns mode
+  if (params.showHistorical && params.historicalDisplay === 'columns') {
+    effectiveCols = params.cols * 2
+  }
+
+  // Add 1 for row header column, and 1 more if showing row totals
+  var totalColumns = effectiveCols + 1 + (params.total === 'row' ? 1 : 0)
+
+  // Reserve space for row labels (approximately 15-20% of width)
+  var rowHeaderWidth = Math.min(200, Math.max(80, screenWidth * 0.15))
+
+  // Calculate available width for data columns
+  var availableWidth = screenWidth - rowHeaderWidth - 40 // 40px for padding/borders
+
+  // Calculate ideal column width
+  var idealColWidth = availableWidth / effectiveCols
+
+  // Set min/max constraints based on column count
+  var colMinWidth, colMaxWidth, rowMaxWidth
+
+  if (effectiveCols <= 2) {
+    // Few columns: allow wider headers
+    colMinWidth = 100
+    colMaxWidth = 250
+    rowMaxWidth = 250
+  } else if (effectiveCols <= 4) {
+    // Medium number of columns
+    colMinWidth = 80
+    colMaxWidth = 180
+    rowMaxWidth = 200
+  } else if (effectiveCols <= 6) {
+    // More columns: constrain widths
+    colMinWidth = 70
+    colMaxWidth = 150
+    rowMaxWidth = 150
+  } else {
+    // Many columns: tight constraints to minimize scroll
+    colMinWidth = 60
+    colMaxWidth = 120
+    rowMaxWidth = 120
+  }
+
+  // Adjust for screen size
+  if (screenWidth <= 480) {
+    colMinWidth = Math.max(50, colMinWidth - 20)
+    colMaxWidth = Math.min(100, colMaxWidth - 30)
+    rowMaxWidth = Math.min(100, rowMaxWidth - 30)
+  } else if (screenWidth <= 768) {
+    colMinWidth = Math.max(60, colMinWidth - 10)
+    colMaxWidth = Math.min(130, colMaxWidth - 20)
+    rowMaxWidth = Math.min(130, rowMaxWidth - 20)
+  }
+
+  // Apply CSS custom properties
+  container.style.setProperty('--col-header-min-width', colMinWidth + 'px')
+  container.style.setProperty('--col-header-max-width', colMaxWidth + 'px')
+  container.style.setProperty('--row-header-max-width', rowMaxWidth + 'px')
+
+  debugLog('Intelligent sizing applied: cols=' + effectiveCols +
+           ', colMin=' + colMinWidth + 'px, colMax=' + colMaxWidth +
+           'px, rowMax=' + rowMaxWidth + 'px')
+}
+
+/**
+ * Reapply intelligent sizing on window resize
+ */
+function setupResizeHandler(params) {
+  var resizeTimeout
+  window.addEventListener('resize', function() {
+    clearTimeout(resizeTimeout)
+    resizeTimeout = setTimeout(function() {
+      applyIntelligentHeaderSizing(params)
+    }, 150)
+  })
+}
+
 function generateTable(params) {
   debugLog('=== GENERATE TABLE DEBUG ===')
   debugLog('Display mode:', params.historicalDisplay)
   debugLog('Show historical:', params.showHistorical)
   debugLog('Historical data:', params.historicalData)
+
+  // Apply intelligent header sizing based on column count and screen size
+  applyIntelligentHeaderSizing(params)
+  setupResizeHandler(params)
 
   var container = document.getElementById('table-wrapper')
   if (!container) {
@@ -1442,6 +1538,17 @@ if (prevAnswer != null) {
 function generateLegacyTable() {
   debugLog('=== GENERATING LEGACY TABLE ===')
   debugLog('Using unified parameters:', unifiedParams)
+
+  // Apply intelligent header sizing for legacy mode
+  var legacyParams = {
+    cols: unifiedParams.cols,
+    rows: unifiedParams.rows,
+    showHistorical: false,
+    historicalDisplay: 'inline',
+    total: ''
+  }
+  applyIntelligentHeaderSizing(legacyParams)
+  setupResizeHandler(legacyParams)
 
   // Determine field appearance
   var fieldAppearance = 'text'
