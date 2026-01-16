@@ -96,7 +96,7 @@ The following parameters enable advanced features:
 | Parameter key | Parameter value |
 | --- | --- |
 | `show_historical` | Set to `true` to display historical data alongside current inputs. Default is `false`. |
-| `historical_data` | Historical data in the same format as the main data: `"A1,B1|A2,B2"` for a 2x2 table. |
+| `historical_data` | Historical data in the same format as the main data: `"A1,B1\|A2,B2"` for a 2x2 table. |
 | `historical_display` | How to display historical data: `inline` (default), `columns`, or `toggle`. |
 | `historical_label` | Label for historical data. Default is `"Last Year"`. |
 | `total` | Calculate totals: `row` for row totals, `column` for column totals. |

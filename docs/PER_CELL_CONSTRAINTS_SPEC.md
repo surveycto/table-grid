@@ -19,6 +19,8 @@ This specification defines the enhancement to support cell-by-cell validation co
 | Use pipe/comma format (like `historical_data`) | Consistent with existing patterns; familiar to users |
 | Support mixed global + per-cell | Maximum flexibility for form designers |
 | Empty values = unconstrained | Intuitive; matches existing optional parameter behavior |
+| Per-cell constraint messages | Enables context-specific feedback for each cell |
+| 2-second feedback delay | Balances immediate feedback with avoiding premature error display |
 
 ---
 
@@ -48,7 +50,35 @@ User Input → Debounced Validation (300ms) → validateNumericInput()
                     setAnswer(answer)
 ```
 
-### 2.2 Navigation Blocking Mechanism
+### 2.2 Immediate Feedback Timing
+
+**Enhancement:** Introduce a configurable delay before showing constraint error messages to avoid premature error display while the user is still typing.
+
+**Rationale:** Showing an error immediately after the first keystroke (e.g., typing "1" when minimum is "100") creates a poor user experience. A 2-second delay after typing pauses allows the user to complete their input before feedback is shown.
+
+**Implementation:**
+
+| Validation Type | Debounce Delay | Purpose |
+|-----------------|----------------|---------|
+| Format validation (NaN, decimals) | 300ms | Quick feedback for invalid characters |
+| Constraint validation (min/max) | 2000ms | Allow user to complete input before range check |
+| Answer update | 150ms | Responsive data capture |
+
+```
+User Input → Format Check (300ms debounce) → Show format errors immediately
+          ↓
+          → Constraint Check (2000ms debounce) → Show min/max errors after pause
+          ↓
+          → Answer Update (150ms debounce)
+```
+
+**New parameter (optional):**
+```
+constraint_feedback_delay=2000    → Delay in ms before showing constraint errors (default: 2000)
+constraint_feedback_delay=0       → Show constraint errors immediately (legacy behavior)
+```
+
+### 2.3 Navigation Blocking Mechanism
 
 **Critical constraint:** The plug-in cannot directly control form navigation. It can only:
 1. Call `setAnswer('')` to clear the field value
@@ -59,7 +89,7 @@ User Input → Debounced Validation (300ms) → validateNumericInput()
 - `validation_strict=true` + SurveyCTO `required=no` = visual errors but NO blocking
 - `validation_strict=false` = soft warnings, never blocks
 
-### 2.3 Existing Parameter Format Reference
+### 2.4 Existing Parameter Format Reference
 
 **`historical_data` format (current implementation):**
 ```
@@ -113,6 +143,50 @@ Form designers can combine:
 | `"0,10,20"` | `1000` | Per-cell min, global max |
 | `"0,10,20"` | `"100,200,300"` | Both per-cell |
 | `0` | `1000` | Both global (current behavior) |
+
+#### 3.1.4 `constraint_message_min` Parameter
+
+**Current behavior (preserved):**
+```
+constraint_message_min="Value must be at least {min}"    → Same message for all cells
+```
+
+**New behavior (list format):**
+```
+constraint_message_min="Q1 revenue must be at least {min},Q2 revenue must be at least {min}|Headcount must be at least {min},Budget must be at least {min}"
+```
+
+**Format specification:**
+- Pipe (`|`) separates rows
+- Comma (`,`) separates columns within a row
+- Empty string between delimiters = use default message for that cell
+- If the list is shorter than the table, unspecified cells use the default message
+- The `{min}` placeholder is replaced with the cell-specific minimum value
+
+**Examples:**
+```
+constraint_message_min="Must be ≥{min},,"      → Custom message for [0,0] only; others use default
+constraint_message_min="Q1: ≥{min},Q2: ≥{min}|Q3: ≥{min},Q4: ≥{min}"  → All cells have custom messages
+```
+
+#### 3.1.5 `constraint_message_max` Parameter
+
+**Identical format to `constraint_message_min`:**
+```
+constraint_message_max="Cannot exceed {max}"                          → Global (current behavior)
+constraint_message_max="Q1 max is {max},Q2 max is {max}|..."          → Per-cell messages
+constraint_message_max="Budget cap: {max},,"                          → Only first cell custom
+```
+
+#### 3.1.6 Mixed Global + Per-Cell Messages
+
+Form designers can combine constraint values and messages independently:
+
+| Constraint | Message | Result |
+|------------|---------|--------|
+| `min_value="0,10,20"` | `constraint_message_min="Must be ≥{min}"` | Per-cell values, global message |
+| `min_value=0` | `constraint_message_min="Q1: ≥{min},Q2: ≥{min}"` | Global value, per-cell messages |
+| `min_value="0,10,20"` | `constraint_message_min="Q1: ≥{min},Q2: ≥{min}"` | Both per-cell |
 
 ### 3.2 Format Detection Logic
 
@@ -204,7 +278,77 @@ function getCellConstraint(constraintDef, rowIndex, colIndex) {
 }
 ```
 
-### 3.5 Validation Function Updates
+### 3.5 Constraint Message Parsing
+
+```javascript
+/**
+ * Parse constraint message into 2D array or single string
+ * @param {string} message - Message parameter value
+ * @param {number} rows - Expected row count
+ * @param {number} cols - Expected column count
+ * @param {string} defaultMessage - Default message if not specified
+ * @returns {Object} {isPerCell: boolean, message: string, matrix: string[][]|null}
+ */
+function parseConstraintMessage(message, rows, cols, defaultMessage) {
+    if (message === null || message === undefined || message === '') {
+        return { isPerCell: false, message: defaultMessage, matrix: null };
+    }
+
+    var str = String(message).trim();
+
+    // Check for per-cell format (contains pipe or comma)
+    if (!isPerCellFormat(str)) {
+        return {
+            isPerCell: false,
+            message: str,
+            matrix: null
+        };
+    }
+
+    // Parse as 2D matrix of messages
+    var matrix = [];
+    var rowStrings = str.split('|');
+
+    for (var r = 0; r < rows; r++) {
+        matrix[r] = [];
+        var colStrings = (rowStrings[r] || '').split(',');
+
+        for (var c = 0; c < cols; c++) {
+            var cellMessage = (colStrings[c] || '').trim();
+            // Empty = use default message
+            matrix[r][c] = cellMessage === '' ? defaultMessage : cellMessage;
+        }
+    }
+
+    return { isPerCell: true, message: null, matrix: matrix };
+}
+
+/**
+ * Get constraint message for a specific cell
+ * @param {Object} messageDef - Parsed message definition
+ * @param {number} rowIndex - 0-based row index
+ * @param {number} colIndex - 0-based column index
+ * @param {string} defaultMessage - Fallback message
+ * @returns {string} The message for this cell
+ */
+function getCellConstraintMessage(messageDef, rowIndex, colIndex, defaultMessage) {
+    if (!messageDef) return defaultMessage;
+
+    if (!messageDef.isPerCell) {
+        return messageDef.message || defaultMessage;
+    }
+
+    if (messageDef.matrix &&
+        messageDef.matrix[rowIndex] &&
+        messageDef.matrix[rowIndex][colIndex]) {
+        return messageDef.matrix[rowIndex][colIndex];
+    }
+
+    return defaultMessage;
+}
+```
+
+### 3.6 Validation Function Updates
 
 **Current `validateNumericInput()` signature:**
 ```javascript
@@ -225,11 +369,24 @@ function validateNumericInput(value, params, useSoftMessages, rowIndex, colIndex
     var minValue = getCellConstraint(params.minValueDef, rowIndex, colIndex);
     var maxValue = getCellConstraint(params.maxValueDef, rowIndex, colIndex);
 
+    // Get cell-specific messages (with fallback to defaults)
+    var defaultMinMsg = useSoftMessages
+        ? 'Value should be at least {min}'
+        : 'Value must be at least {min}';
+    var defaultMaxMsg = useSoftMessages
+        ? 'Value should be at most {max}'
+        : 'Value must be at most {max}';
+
+    var minMsgDef = useSoftMessages
+        ? params.constraintMessageMinSoftDef
+        : params.constraintMessageMinDef;
+    var maxMsgDef = useSoftMessages
+        ? params.constraintMessageMaxSoftDef
+        : params.constraintMessageMaxDef;
+
     // Min check
     if (minValue !== null && numValue < minValue) {
-        var msg = useSoftMessages
-            ? params.constraintMessageMinSoft
-            : params.constraintMessageMin;
+        var msg = getCellConstraintMessage(minMsgDef, rowIndex, colIndex, defaultMinMsg);
         return {
             valid: false,
             message: msg.replace('{min}', minValue)
@@ -238,9 +395,7 @@ function validateNumericInput(value, params, useSoftMessages, rowIndex, colIndex
 
     // Max check
     if (maxValue !== null && numValue > maxValue) {
-        var msg = useSoftMessages
-            ? params.constraintMessageMaxSoft
-            : params.constraintMessageMax;
+        var msg = getCellConstraintMessage(maxMsgDef, rowIndex, colIndex, defaultMaxMsg);
         return {
             valid: false,
             message: msg.replace('{max}', maxValue)
@@ -251,7 +406,9 @@ function validateNumericInput(value, params, useSoftMessages, rowIndex, colIndex
 }
 ```
 
-### 3.6 Edge Cases and Handling
+### 3.7 Edge Cases and Handling
+
+#### 3.7.1 Constraint Value Edge Cases
 
 | Scenario | Behavior |
 |----------|----------|
@@ -263,6 +420,26 @@ function validateNumericInput(value, params, useSoftMessages, rowIndex, colIndex
 | min > max for a cell | Both constraints applied; cell can never be valid (form designer error) |
 | Negative constraints | Allowed (e.g., temperature data) |
 | Decimal constraints | Allowed (e.g., `min_value="0.5,1.5,2.5"`) |
+
+#### 3.7.2 Constraint Message Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| Message list shorter than table | Missing cells = use default message |
+| Message list longer than table | Extra messages ignored |
+| Empty message in list (`"Msg1,,Msg3"`) | That cell = use default message |
+| Message without `{min}`/`{max}` placeholder | Message shown as-is (no substitution) |
+| Only pipes in message (`"||"`) | All cells use default message |
+| Message contains pipe or comma literally | Not supported; use alternative phrasing |
+
+#### 3.7.3 Feedback Timing Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| `constraint_feedback_delay=0` | Immediate constraint feedback (300ms with format validation) |
+| `constraint_feedback_delay` not specified | Default 2000ms delay |
+| User navigates away before delay | Validation triggered immediately on blur |
+| Rapid typing across multiple cells | Each cell has independent delay timer |
 
 ---
 
@@ -400,6 +577,8 @@ if (minValue !== null && maxValue !== null && minValue > maxValue) {
 
 ### 8.1 Unit Tests
 
+#### 8.1.1 Constraint Value Parsing
+
 | Test Case | Input | Expected Output |
 |-----------|-------|-----------------|
 | Global min parsing | `min_value=0` | `{isPerCell: false, value: 0}` |
@@ -408,6 +587,25 @@ if (minValue !== null && maxValue !== null && minValue > maxValue) {
 | Multi-row parsing | `min_value="0,10|20,30"` | `matrix: [[0,10],[20,30]]` |
 | Shorter list | 3×3 table, `"0,10"` | Row 0: [0,10,null], Rows 1-2: all null |
 | Invalid value handling | `"0,abc,20"` | `[0, null, 20]` + console warning |
+
+#### 8.1.2 Constraint Message Parsing
+
+| Test Case | Input | Expected Output |
+|-----------|-------|-----------------|
+| Global message parsing | `"Must be ≥{min}"` | `{isPerCell: false, message: "Must be ≥{min}"}` |
+| Per-cell message parsing | `"Q1: ≥{min},Q2: ≥{min}"` | `{isPerCell: true, matrix: [["Q1: ≥{min}","Q2: ≥{min}"]]}` |
+| Mixed empty messages | `"Custom,,Custom"` | `matrix: [["Custom", defaultMsg, "Custom"]]` |
+| Multi-row messages | `"A,B|C,D"` | `matrix: [["A","B"],["C","D"]]` |
+| Shorter message list | 3×3 table, `"Msg1,Msg2"` | Row 0: [Msg1,Msg2,default], Rows 1-2: all default |
+
+#### 8.1.3 Feedback Delay Timing
+
+| Test Case | Setup | Expected Behavior |
+|-----------|-------|-------------------|
+| Default delay | No `constraint_feedback_delay` param | 2000ms delay before constraint error |
+| Custom delay | `constraint_feedback_delay=3000` | 3000ms delay before constraint error |
+| Zero delay | `constraint_feedback_delay=0` | Immediate constraint error (with format validation) |
+| Format vs constraint timing | Type "abc" then "50" (min=100) | Format error at 300ms, constraint error at 2000ms |
 
 ### 8.2 Integration Tests
 
@@ -418,6 +616,11 @@ if (minValue !== null && maxValue !== null && minValue > maxValue) {
 | Hard validation blocking | `validation_strict=true`, invalid cell | Form cannot progress |
 | Backward compat - global | Existing form with `min_value=0` | Exact same behavior as before |
 | Sparse constraints | Only some cells constrained | Unconstrained cells accept any value |
+| Per-cell messages display | Different messages per cell | Each cell shows its specific message |
+| Mixed value + message | Per-cell min, global message | Correct min value in global message template |
+| Delayed feedback | Type invalid value, wait | Error appears after 2s delay |
+| Blur triggers validation | Type invalid, tab away before delay | Error appears immediately on blur |
+| Rapid typing resets delay | Type, pause, type again | Delay timer resets on each keystroke |
 
 ### 8.3 Edge Case Tests
 
@@ -465,6 +668,36 @@ The `min_value` and `max_value` parameters can accept either:
 min_value=0                    # Global minimum for all cells
 max_value="100,200,300|150,250,350"  # Per-cell maximums
 ```
+
+#### Per-Cell Constraint Messages
+
+The `constraint_message_min` and `constraint_message_max` parameters also support per-cell format:
+
+1. **A single message** (applies to all cells):
+   ```
+   constraint_message_min="Value must be at least {min}"
+   ```
+
+2. **A list of messages** (applies per-cell):
+   ```
+   constraint_message_min="Q1 revenue must be at least {min},Q2 revenue must be at least {min}|Q3 must be at least {min},Q4 must be at least {min}"
+   ```
+
+**Message format:**
+- Same pipe/comma format as constraint values
+- Use `{min}` or `{max}` placeholders for the constraint value
+- Leave empty to use the default message for that cell
+
+#### Constraint Feedback Timing
+
+Control when constraint error messages appear:
+
+```
+constraint_feedback_delay=2000   # Wait 2 seconds after typing stops (default)
+constraint_feedback_delay=0      # Show errors immediately
+```
+
+This delay prevents premature error display while the user is still typing.
 ```
 
 ### 9.2 Example Forms
@@ -484,14 +717,17 @@ Add new sample form demonstrating:
 | Task | Description | Effort |
 |------|-------------|--------|
 | **1. Parser functions** | `parseConstraintValue()`, `getCellConstraint()`, `isPerCellFormat()` | Small |
-| **2. Parameter handling** | Update `getTableParameters()` to parse min/max as constraint definitions | Small |
-| **3. Validation update** | Modify `validateNumericInput()` to accept row/col indices | Small |
-| **4. Call site updates** | Update all calls to `validateNumericInput()` to pass indices | Small |
-| **5. Error handling** | Console warnings for malformed input | Small |
-| **6. Unit tests** | Parser tests, constraint retrieval tests | Small-Medium |
-| **7. Integration tests** | End-to-end validation scenarios | Medium |
-| **8. Documentation** | README updates, example forms | Small |
-| **9. Code review & QA** | Review, testing, bug fixes | Medium |
+| **2. Message parser functions** | `parseConstraintMessage()`, `getCellConstraintMessage()` | Small |
+| **3. Parameter handling** | Update `getTableParameters()` to parse min/max values and messages | Small |
+| **4. Validation update** | Modify `validateNumericInput()` to use per-cell values and messages | Small |
+| **5. Feedback delay implementation** | Add separate debounce timer for constraint validation (2000ms default) | Small-Medium |
+| **6. Blur handler update** | Trigger immediate constraint validation on cell blur | Small |
+| **7. Call site updates** | Update all calls to `validateNumericInput()` to pass indices | Small |
+| **8. Error handling** | Console warnings for malformed input | Small |
+| **9. Unit tests** | Parser tests, message tests, timing tests | Medium |
+| **10. Integration tests** | End-to-end validation scenarios | Medium |
+| **11. Documentation** | README updates, example forms | Small |
+| **12. Code review & QA** | Review, testing, bug fixes | Medium |
 
 ### 10.2 Complexity Assessment
 
@@ -540,6 +776,29 @@ min_value parameter:
 
 max_value parameter:
 └── [Same format as min_value]
+
+constraint_message_min parameter:
+├── Single message: "Value must be at least {min}"
+│   └── Applied to ALL cells (with {min} substituted per cell)
+├── Single row: "Q1: ≥{min},Q2: ≥{min},Q3: ≥{min}"
+│   └── Applied to row 0 only; other rows use default
+├── Multiple rows: "Q1: ≥{min},Q2: ≥{min}|Q3: ≥{min},Q4: ≥{min}"
+│   └── Row 0: [Q1 msg, Q2 msg], Row 1: [Q3 msg, Q4 msg]
+├── Sparse: "Custom msg,,Custom msg"
+│   └── Empty positions use default message
+└── Empty: "" or omitted
+    └── All cells use default message
+
+constraint_message_max parameter:
+└── [Same format as constraint_message_min, using {max} placeholder]
+
+constraint_feedback_delay parameter:
+├── Default (omitted): 2000ms
+│   └── Show constraint errors 2 seconds after typing stops
+├── Custom value: e.g., 3000
+│   └── Wait specified milliseconds before showing constraint errors
+└── Zero: 0
+    └── Show constraint errors immediately (with format validation at 300ms)
 ```
 
 ### B. Validation Message Placeholders
@@ -549,7 +808,7 @@ max_value parameter:
 | `{min}` | Cell-specific minimum value |
 | `{max}` | Cell-specific maximum value |
 
-**Example:**
+**Example 1: Global message with per-cell values**
 ```
 constraint_message_min="Revenue must be at least ${min}"
 min_value="1000,2000,3000"
@@ -557,6 +816,26 @@ min_value="1000,2000,3000"
 Cell [0,0] error: "Revenue must be at least $1000"
 Cell [0,1] error: "Revenue must be at least $2000"
 Cell [0,2] error: "Revenue must be at least $3000"
+```
+
+**Example 2: Per-cell messages with per-cell values**
+```
+constraint_message_min="Q1 revenue: min ${min},Q2 revenue: min ${min},Q3 revenue: min ${min}"
+min_value="1000,2000,3000"
+
+Cell [0,0] error: "Q1 revenue: min $1000"
+Cell [0,1] error: "Q2 revenue: min $2000"
+Cell [0,2] error: "Q3 revenue: min $3000"
+```
+
+**Example 3: Per-cell messages with global value**
+```
+constraint_message_min="Q1 must be ≥{min},Q2 must be ≥{min},Q3 must be ≥{min}"
+min_value=100
+
+Cell [0,0] error: "Q1 must be ≥100"
+Cell [0,1] error: "Q2 must be ≥100"
+Cell [0,2] error: "Q3 must be ≥100"
 ```
 
 ### C. Decision Log
@@ -567,6 +846,11 @@ Cell [0,2] error: "Revenue must be at least $3000"
 | Pipe/comma format | JSON array, semicolon-separated | Consistent with `historical_data` |
 | Empty = unconstrained | Empty = 0, require explicit "none" | More intuitive, less verbose |
 | Silent ignore extra values | Error on mismatch | More forgiving, easier to use |
+| Per-cell message format | Separate `cell_messages` param | Consistent with constraint value format |
+| Empty message = default | Empty = no message | Better UX, always shows feedback |
+| 2-second feedback delay | Immediate, 1s, 500ms | Balances user typing speed with responsiveness |
+| Separate delay for constraints | Same delay for all validation | Format errors need quick feedback, range errors can wait |
+| Blur triggers immediate validation | Always wait for delay | Prevents user from leaving with unseen error |
 
 ---
 
