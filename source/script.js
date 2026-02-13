@@ -82,7 +82,7 @@ function getTableParameters() {
     col_labels: safeGetPluginParameter('col_labels', ''),
     show_historical: safeGetPluginParameter('show_historical', 'false'),
     historical_data: safeGetPluginParameter('historical_data', ''),
-    historical_display: safeGetPluginParameter('historical_display', 'inline'),
+    historical_display: safeGetPluginParameter('historical_display', 'bottom'),
     total: safeGetPluginParameter('total', ''),
     format_numbers: safeGetPluginParameter('format_numbers', 'false'),
     min_value: safeGetPluginParameter('min_value', ''),
@@ -100,7 +100,7 @@ function getTableParameters() {
     colLabels: parseLabels(rawParams.col_labels),
     showHistorical: rawParams.show_historical === 'true',
     historicalData: parseHistoricalData(rawParams.historical_data),
-    historicalDisplay: rawParams.historical_display || 'inline',
+    historicalDisplay: rawParams.historical_display || 'bottom',
     historicalLabel: safeGetPluginParameter('historical_label', 'Last Year'),
     numbersAppearance: fieldProperties.APPEARANCE && fieldProperties.APPEARANCE.includes('numbers'),
 
@@ -224,7 +224,7 @@ var unifiedParams = {
   // Enhanced parameters
   showHistorical: getUnifiedParameter(['show_historical'], 'false') === 'true',
   historicalData: getUnifiedParameter(['historical_data'], ''),
-  historicalDisplay: getUnifiedParameter(['historical_display'], 'inline'),
+  historicalDisplay: getUnifiedParameter(['historical_display'], 'bottom'),
   historicalLabel: getUnifiedParameter(['historical_label'], 'Last Year'),
   total: getUnifiedParameter(['total'], ''),
   formatNumbers: getUnifiedParameter(['format_numbers'], 'false') === 'true',
@@ -878,14 +878,14 @@ function createCellContent(params, rowIndex, colIndex) {
 
   debugLog('Creating cell [' + rowIndex + '][' + colIndex + ']')
 
-  // Historical value display (inline mode OR toggle mode)
-  if (params.showHistorical && (params.historicalDisplay === 'inline' || params.historicalDisplay === 'toggle')) {
+  // Historical value display (inline mode OR toggle mode — prepend above input)
+  if (params.showHistorical && (params.historicalDisplay === 'top' || params.historicalDisplay === 'toggle')) {
     var histValue = getHistoricalValue(params.historicalData, rowIndex, colIndex)
     debugLog('Historical value for [' + rowIndex + '][' + colIndex + ']:', histValue)
 
     if (histValue !== null && histValue !== undefined) {
       var histSpan = document.createElement('span')
-      histSpan.className = params.historicalDisplay === 'toggle' ? 'toggle-historical' : 'inline-historical'
+      histSpan.className = params.historicalDisplay === 'toggle' ? 'toggle-historical' : 'top-historical'
       histSpan.textContent = params.formatNumbers ? formatNumber(histValue, true) : histValue
       histSpan.setAttribute('role', 'note')
       histSpan.setAttribute('aria-label', params.historicalLabel + ': ' + histValue)
@@ -940,6 +940,24 @@ function createCellContent(params, rowIndex, colIndex) {
   }
 
   container.appendChild(input)
+
+  // Historical value display (bottom mode — append below input)
+  if (params.showHistorical && params.historicalDisplay === 'bottom') {
+    var histValueBottom = getHistoricalValue(params.historicalData, rowIndex, colIndex)
+    debugLog('Historical value (bottom) for [' + rowIndex + '][' + colIndex + ']:', histValueBottom)
+
+    if (histValueBottom !== null && histValueBottom !== undefined) {
+      var histSpanBottom = document.createElement('span')
+      histSpanBottom.className = 'bottom-historical'
+      histSpanBottom.textContent = params.formatNumbers ? formatNumber(histValueBottom, true) : histValueBottom
+      histSpanBottom.setAttribute('role', 'note')
+      histSpanBottom.setAttribute('aria-label', params.historicalLabel + ': ' + histValueBottom)
+      histSpanBottom.title = params.historicalLabel + ': ' + histValueBottom
+      container.appendChild(histSpanBottom)
+      debugLog('Added bottom historical span with value:', histValueBottom)
+    }
+  }
+
   return container
 }
 
@@ -1609,7 +1627,7 @@ function generateLegacyTable() {
     cols: unifiedParams.cols,
     rows: unifiedParams.rows,
     showHistorical: false,
-    historicalDisplay: 'inline',
+    historicalDisplay: 'bottom',
     total: ''
   }
   var sizing = applyIntelligentHeaderSizing(legacyParams)

@@ -346,7 +346,7 @@
     justify-content: center;
 }
 
-.inline-historical {
+.top-historical {
     background: linear-gradient(135deg, var(--bg-historical) 0%, #e1f0ff 100%);
     border: 1px solid var(--primary-blue);
     border-radius: 12px;
@@ -357,6 +357,19 @@
     padding: 2px 6px;
     white-space: nowrap;
     order: -1;
+    font-family: var(--font-family-primary);
+}
+
+.bottom-historical {
+    background: linear-gradient(135deg, var(--bg-historical) 0%, #e1f0ff 100%);
+    border: 1px solid var(--primary-blue);
+    border-radius: 12px;
+    font-size: var(--font-size-small);
+    font-weight: 500;
+    color: var(--primary-blue-dark);
+    box-shadow: 0 1px 3px rgba(4, 124, 194, 0.1);
+    padding: 2px 6px;
+    white-space: nowrap;
     font-family: var(--font-family-primary);
 }
 
@@ -460,16 +473,18 @@
         padding: 8px 6px;
     }
 
-    .inline-historical {
+    .top-historical,
+    .bottom-historical {
         padding: 2px 6px;
     }
 
-    /* Force inline mode on mobile for columns display */
+    /* Force top mode on mobile for columns display */
     .columns-mode .historical-cell {
         display: none;
     }
 
-    .columns-mode .inline-historical {
+    .columns-mode .top-historical,
+    .columns-mode .bottom-historical {
         display: block;
     }
 
@@ -582,7 +597,8 @@
 /* High contrast mode support */
 @media (prefers-contrast: high) {
 
-    .inline-historical,
+    .top-historical,
+    .bottom-historical,
     .toggle-historical {
         border: 2px solid #000;
         background-color: #fff;
