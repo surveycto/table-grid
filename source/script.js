@@ -599,7 +599,7 @@ function applyIntelligentHeaderSizing(params) {
   root.style.setProperty('--row-header-max-width', rowMaxWidth + 'px')
 
   console.log('Intelligent sizing: cols=' + effectiveCols +
-           ', rowWidth=' + rowWidth + 'px, rowMax=' + rowMaxWidth + 'px')
+    ', rowWidth=' + rowWidth + 'px, rowMax=' + rowMaxWidth + 'px')
 
   // Return sizing values for direct application after table is built
   return {
@@ -651,9 +651,9 @@ function applyRowHeaderWidths(sizing) {
  */
 function setupResizeHandler(params) {
   var resizeTimeout
-  window.addEventListener('resize', function() {
+  window.addEventListener('resize', function () {
     clearTimeout(resizeTimeout)
-    resizeTimeout = setTimeout(function() {
+    resizeTimeout = setTimeout(function () {
       var sizing = applyIntelligentHeaderSizing(params)
       applyRowHeaderWidths(sizing)
     }, 150)
@@ -1857,7 +1857,11 @@ function setFocus() {
 
   if (firstInput) {
     debugLog('Setting focus to first input')
-    firstInput.focus()
+
+    // Use preventScroll to avoid pushing the label out of view.
+    // The table container is independently scrollable, so focus
+    // should not cause the entire iframe to scroll.
+    firstInput.focus({ preventScroll: true })
 
     // Show soft keyboard on mobile platforms
     if (isAndroid || isIOS) {
@@ -2060,8 +2064,70 @@ function updateColumnTotals(params) {
 // ====================
 
 /**
- * Main initialization function that handles both legacy and enhanced modes
+ * Constrain the table container height so the label and controls above it
+ * always remain visible. The table becomes independently scrollable when
+ * its content exceeds the available space.
  */
+function applyTableContainerHeight() {
+  var container = document.getElementById('table-container')
+  if (!container) return
+
+  // Clear any previously set max-height so we can measure the table's natural height
+  container.style.maxHeight = ''
+
+  // The plugin runs inside an iframe. 100vh inside the iframe equals the iframe's
+  // own content height (because iframeResizer sizes the iframe to fit), which is
+  // useless for constraining. We need the PARENT window's viewport height instead.
+  var availableHeight
+  try {
+    availableHeight = window.parent.innerHeight
+  } catch (e) {
+    // Cross-origin: fall back to our own viewport (better than nothing)
+    availableHeight = window.innerHeight
+  }
+
+  if (!availableHeight || availableHeight <= 0) return
+
+  // Measure everything above the table container (label, hint, controls)
+  var aboveHeight = 0
+  var sibling = container.previousElementSibling
+  while (sibling) {
+    var style = window.getComputedStyle(sibling)
+    if (style.display !== 'none' && style.visibility !== 'hidden') {
+      aboveHeight += sibling.offsetHeight
+      aboveHeight += parseInt(style.marginTop, 10) || 0
+      aboveHeight += parseInt(style.marginBottom, 10) || 0
+    }
+    sibling = sibling.previousElementSibling
+  }
+
+  // Account for container's own margins
+  var containerStyle = window.getComputedStyle(container)
+  var containerMargin = (parseInt(containerStyle.marginTop, 10) || 0) +
+    (parseInt(containerStyle.marginBottom, 10) || 0)
+
+  // Reserve space for: content above table + container margins + SurveyCTO chrome
+  // (form header, nav buttons, padding). ~180px is a conservative estimate for
+  // the parent page chrome that surrounds the iframe.
+  var parentChrome = 180
+  var reservedHeight = aboveHeight + containerMargin + parentChrome
+  var maxTableHeight = availableHeight - reservedHeight
+
+  // Only constrain if the table's natural height actually exceeds available space.
+  // This lets small tables render at full size without unnecessary scrolling.
+  var tableNaturalHeight = container.scrollHeight
+
+  if (tableNaturalHeight > maxTableHeight && maxTableHeight > 100) {
+    container.style.maxHeight = maxTableHeight + 'px'
+    debugLog('Table container constrained: natural=' + tableNaturalHeight +
+      'px, max=' + maxTableHeight + 'px (parentVH=' + availableHeight +
+      ', above=' + aboveHeight + ', chrome=' + parentChrome + ')')
+  } else {
+    debugLog('Table container unconstrained: natural=' + tableNaturalHeight +
+      'px fits within max=' + maxTableHeight + 'px')
+  }
+}
+
 function initializeTableGrid() {
   try {
     console.log('=== TABLE GRID INITIALIZATION ===')
@@ -2081,6 +2147,16 @@ function initializeTableGrid() {
 
     // Common initialization for both modes
     setupCommonFeatures()
+
+    // Constrain table container height so label stays visible
+    applyTableContainerHeight()
+
+    // Recalculate on resize (orientation change, window resize)
+    var resizeHeightTimeout
+    window.addEventListener('resize', function () {
+      clearTimeout(resizeHeightTimeout)
+      resizeHeightTimeout = setTimeout(applyTableContainerHeight, 200)
+    })
 
   } catch (error) {
     debugLog('Error initializing table grid plugin:', error)

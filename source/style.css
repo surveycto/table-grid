@@ -236,8 +236,10 @@
 .table-container {
     width: 100%;
     overflow-x: auto;
+    overflow-y: auto;
     margin: 1rem 0;
-    /* Consistent top/bottom margin for both modes */
+    /* max-height is set dynamically by JS based on available viewport space */
+    /* This keeps the label and controls always visible above the table */
 }
 
 .table-wrapper {
