@@ -24,25 +24,50 @@ This field plug-in supports the creation of a table for data input in SurveyCTO 
 
 ### Data format
 
-This field plug-in requires the `text` field type.
-The data is stored in a pipe <code> (|)</code> separated list of items such as: 
+This field plug-in requires the `text` field type. The plug-in has two answer formats depending on which mode is active:
+
+#### Legacy mode (no `col_labels`/`row_labels`/enhanced parameters)
+
+The data is stored as a flat pipe <code> (|)</code> separated list with a trailing pipe:
 
 `1|2|3|4|5|6|7|8|9|0|`
 
-For example, if you have the following table: 
+For example, this table:
 
 | | A | B |
 | --- | --- | --- |
 | 1 | A1 | B1 |
 | 2 | A2 | B2 |
 
-The data will be stored as:
+…is stored as `A1|B1|A2|B2|`.
 
-`A1|B1|A2|B2|`
+Use the [`item-at()`](https://docs.surveycto.com/02-designing-forms/01-core-concepts/09.expressions.html#Help_Forms_item-at) function to retrieve individual cells from the saved value. SurveyCTO's signature is `item-at(separator, list, index)` and the index is **zero-based**:
 
-You can use any of the functions in the *Working with lists of items* section of our documentation on [Using expressions in your forms: a reference for all operators and functions](https://docs.surveycto.com/02-designing-forms/01-core-concepts/09.expressions.html). Specifically, the [item-at() function](https://docs.surveycto.com/02-designing-forms/01-core-concepts/09.expressions.html#Help_Forms_item-at) will allow you to retrieve items from the saved value.  
+```
+item-at('|', ${field}, row * cols + col)
+```
 
-**Note**: Because the responses are separated by a pipe <code> (|)</code> make sure there are no pipes <code> (|)</code> in any of the actual text in the responses. 
+For the example above (`A1|B1|A2|B2|`, with `cols=2`), `item-at('|', ${field}, 0)` returns `A1`, `item-at('|', ${field}, 3)` returns `B2`.
+
+#### Enhanced mode (any of `col_labels`, `row_labels`, `show_historical`, `total`, `format_numbers`, `min_value`, `max_value`, `allow_decimals`, `validation_strict`)
+
+The data is stored as a **row-oriented** matrix: cells in a row are joined by commas, rows are joined by pipes, and there is **no trailing pipe**:
+
+`A1,B1|A2,B2`
+
+This format keeps row structure intact, so cells can be addressed by `(row, col)` directly via nested `item-at()` calls (zero-based indices on both axes):
+
+```
+item-at('|', ${field}, R)                          <-- whole row R as "A,B,C"
+
+item-at(',', item-at('|', ${field}, R), C)         <-- single cell at row R, col C
+```
+
+> **Note**: Use `item-at()`, not `selected-at()`. `selected-at()` is for `select_multiple` choice selections and won't work on these delimited strings.
+
+> **Breaking change vs upstream `surveycto/table-grid`.** Upstream uses the flat `|` format documented in the previous section regardless of parameters. This fork uses the enhanced row-oriented format whenever any enhanced parameter is set. If you are migrating an existing form from upstream and adding any enhanced parameter, your XPath calculations on the answer field will need to be updated.
+
+**Note**: Because rows are separated by pipes <code> (|)</code> and cells are separated by commas <code> (,)</code>, do not put pipes or commas in any of the actual cell values. Use whole numbers, decimals with `.` (the plug-in normalizes commas to dots when `allow_decimals=true`), or short text that doesn't contain those delimiters.
 
 ## How to use
 
@@ -105,6 +130,7 @@ The following parameters enable advanced features:
 | `max_value` | Maximum allowed value for numeric inputs. |
 | `allow_decimals` | Set to `false` to restrict inputs to whole numbers only. Default is `true`. |
 | `validation_strict` | Set to `true` to prevent form progression when validation fails (hard validation). **Important:** Must be used with SurveyCTO's native `required` set to `yes` for progression blocking to work. Set to `false` for soft validation with warnings. Default is `false`. |
+| `frame_adjust` | Pixel offset added to the auto-computed table height when the column header is pinned. Use a positive number to make the table area taller, negative to shrink it. Only useful when fine-tuning for unusual form layouts (long labels, large hint text). Default is `0`. |
 
 #### Validation Message Customization
 
@@ -123,14 +149,30 @@ Customize validation messages for better user experience:
 
 #### Historical Data Display Modes
 
-- **`inline`**: Historical values appear above input fields in each cell
-- **`columns`**: Historical data appears in separate columns next to current data columns  
+- **`bottom`** *(default)*: Historical values appear below the input field in each cell
+- **`top`**: Historical values appear above the input field in each cell *(formerly `inline` — that name still works as an alias for backward compatibility)*
+- **`columns`**: Historical data appears in separate columns next to current data columns
 - **`toggle`**: Users can toggle between viewing historical data and current inputs
 
 #### Validation Modes
 
 - **Soft Validation** (`validation_strict=false`): Shows amber/orange warning messages but allows form progression. Ideal for recommendations or guidelines.
 - **Hard Validation** (`validation_strict=true`): Shows red error messages and prevents form progression until issues are resolved. Required for strict data quality. **Note:** For hard validation to block progression, the field must also have `required` set to `yes` in the SurveyCTO form design.
+
+#### Long tables and the pinned column header
+
+When the table is taller than the available space inside the field, the plug-in caps the table area to the visible height and pins the column header (and the row labels) so they remain visible while the user scrolls *inside* the table. Tables that comfortably fit are left alone — there is no internal scroll for short tables.
+
+The available height is computed from the host viewport and a built-in chrome estimate (~355px on web Collect, ~200px on Android/iOS Collect). For unusual form layouts — very long question labels, large hints, custom themes — use the `frame_adjust` parameter to add or subtract pixels:
+
+```
+custom-table-grid(
+  rows=12,
+  cols=4,
+  ...
+  frame_adjust=-40   // shrink the visible table area by 40px
+)
+```
 
 #### Example Usage
 
@@ -159,7 +201,7 @@ custom-table-grid(
   row_labels="Revenue, Expenses, Profit",
   show_historical=true,
   historical_data="100,200,150,300|50,75,60,120|50,125,90,180",
-  historical_display=inline,
+  historical_display=top,
   format_numbers=true,
   total=row,
   min_value=0,
@@ -169,6 +211,50 @@ custom-table-grid(
 ```
 
 **Note**: When using comma-separated labels, avoid using commas within the label text itself. For historical data, use the same row|column structure as the main data format.
+
+#### Pre-loading historical data from form fields
+
+`historical_data` is a single string parsed as `row1col1,row1col2,...|row2col1,row2col2,...`. SurveyCTO substitutes any `${field}` references **once**, before the plug-in loads, so the matrix has to arrive as a fully assembled string.
+
+**Always assemble the matrix in a `calculate` field with `concat()` and pass that field in.** Inlining `${...}` references directly inside the `historical_data` value is fragile: empty values, commas inside referenced values (e.g. thousands separators like `"1,234"`), or extra whitespace from the form engine will silently misalign the rows.
+
+XLSForm example — survey sheet:
+
+| type | name | calculation |
+| --- | --- | --- |
+| calculate | hist_q1 | `instance('last_year')/root/item[id=${id}]/q1` |
+| calculate | hist_q2 | `instance('last_year')/root/item[id=${id}]/q2` |
+| calculate | hist_q3 | `instance('last_year')/root/item[id=${id}]/q3` |
+| calculate | hist_q4 | `instance('last_year')/root/item[id=${id}]/q4` |
+| calculate | hist_matrix | `concat(${hist_q1},",",${hist_q2},",",${hist_q3},",",${hist_q4})` |
+
+Then in the table-grid field's `parameters`:
+
+```
+custom-table-grid(
+  rows=1,
+  cols=4,
+  col_labels="Q1, Q2, Q3, Q4",
+  show_historical=true,
+  historical_data=${hist_matrix}
+)
+```
+
+For multi-row tables, build one `concat()` per row and join them with `"|"`:
+
+```
+calculate hist_matrix = concat(
+  ${hist_revenue_q1},",",${hist_revenue_q2},",",${hist_revenue_q3},",",${hist_revenue_q4},
+  "|",
+  ${hist_expenses_q1},",",${hist_expenses_q2},",",${hist_expenses_q3},",",${hist_expenses_q4}
+)
+```
+
+**JSON alternative.** If your historical values themselves contain commas (e.g. pre-formatted currency strings), pass the matrix as a JSON 2D array instead — the plug-in detects a leading `[` and parses accordingly:
+
+```
+historical_data='[["1,234","2,500"],["900","1,100"]]'
+```
 
 ## More resources
 

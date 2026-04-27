@@ -42,11 +42,18 @@ function parsePositiveInt(value, fallback) {
   return n
 }
 
-// Parse a numeric value or return null
+// Parse a numeric value or return null. Strict: rejects partial-number
+// strings like "12abc", "1.2.3", or "10|20" that parseFloat would happily
+// accept. Empty / null / undefined → null (treated as unconstrained).
+var STRICT_NUMERIC_RE = /^-?\d+(\.\d+)?$/
+
 function parseNumericOrNull(value) {
   if (value === '' || value === null || value === undefined) return null
-  var n = parseFloat(value)
-  return isNaN(n) ? null : n
+  var s = String(value).trim()
+  if (s === '') return null
+  if (!STRICT_NUMERIC_RE.test(s)) return null
+  var n = Number(s)
+  return isFinite(n) ? n : null
 }
 
 function safeGetPluginParameter(name, defaultValue) {
@@ -88,7 +95,8 @@ function getTableParameters() {
     min_value: safeGetPluginParameter('min_value', ''),
     max_value: safeGetPluginParameter('max_value', ''),
     allow_decimals: safeGetPluginParameter('allow_decimals', 'true'),
-    validation_strict: safeGetPluginParameter('validation_strict', 'false')
+    validation_strict: safeGetPluginParameter('validation_strict', 'false'),
+    frame_adjust: safeGetPluginParameter('frame_adjust', '0')
   }
 
   debugLog('Raw parameters:', rawParams)
@@ -100,7 +108,10 @@ function getTableParameters() {
     colLabels: parseLabels(rawParams.col_labels),
     showHistorical: rawParams.show_historical === 'true',
     historicalData: parseHistoricalData(rawParams.historical_data),
-    historicalDisplay: rawParams.historical_display || 'bottom',
+    // 'inline' was renamed to 'top' in v2.0.x — keep it as a backward-compat
+    // alias so existing forms that still pass historical_display=inline keep
+    // rendering correctly. README documents top/bottom/columns/toggle only.
+    historicalDisplay: normalizeHistoricalDisplay(rawParams.historical_display),
     historicalLabel: safeGetPluginParameter('historical_label', 'Last Year'),
     numbersAppearance: fieldProperties.APPEARANCE && fieldProperties.APPEARANCE.includes('numbers'),
 
@@ -112,6 +123,7 @@ function getTableParameters() {
     maxValue: parseNumericOrNull(rawParams.max_value),
     allowDecimals: rawParams.allow_decimals !== 'false',
     validationStrict: rawParams.validation_strict === 'true',
+    frameAdjust: parseInt(rawParams.frame_adjust, 10) || 0,
 
     // Constraint message parameters
     constraintMessageMin: safeGetPluginParameter('constraint_message_min', 'Value must be at least {min}'),
@@ -146,16 +158,55 @@ function parseLabels(labelString) {
   return cleanString.split(delimiter).map(function (s) { return s.trim() }).filter(function (s) { return s.length > 0 })
 }
 
+/**
+ * Normalize historical_display values. 'inline' is the legacy name for 'top'
+ * — older READMEs and form configurations still use it. Default is 'bottom'.
+ */
+function normalizeHistoricalDisplay(value) {
+  if (!value) return 'bottom'
+  var v = String(value).trim().toLowerCase()
+  if (v === 'inline') return 'top'
+  return v
+}
+
 function parseHistoricalData(dataString) {
   debugLog('Raw historical data parameter:', dataString)
 
   if (!dataString) return null
 
-  // Remove surrounding quotes if present
-  var cleanString = dataString.replace(/^['"]|['"]$/g, '')
+  // Remove surrounding quotes and normalise whitespace. XPath substitution can
+  // inject CR/LF/non-breaking spaces, especially when the matrix is built via
+  // concat() across multiple lines in a calculate.
+  var cleanString = dataString
+    .replace(/^['"]|['"]$/g, '')
+    .replace(/ /g, ' ')
+    .replace(/[\r\n\t]+/g, ' ')
+
   debugLog('Cleaned historical data:', cleanString)
 
   if (!cleanString.trim()) return null
+
+  // JSON-array fallback: lets advanced users build the matrix in a dataset
+  // and side-step ',' / '|' collisions with thousands separators in their data.
+  // Format: [["100","200"],["300","400"]]
+  var trimmed = cleanString.trim()
+  if (trimmed.charAt(0) === '[') {
+    try {
+      var parsed = JSON.parse(trimmed)
+      if (Array.isArray(parsed) && parsed.every(function (r) { return Array.isArray(r) })) {
+        var jsonResult = parsed.map(function (row) {
+          return row.map(function (cell) {
+            return cell === null || cell === undefined ? '' : String(cell).trim()
+          })
+        })
+        debugLog('Parsed historical data (JSON):', jsonResult)
+        return jsonResult
+      }
+      debugLog('Historical data JSON is not a 2D array, falling back to delimited parse')
+    } catch (jsonError) {
+      debugLog('Historical data JSON parse failed, falling back to delimited parse:', jsonError)
+    }
+  }
 
   try {
     var result = cleanString.split('|').map(function (row) {
@@ -224,7 +275,7 @@ var unifiedParams = {
   // Enhanced parameters
   showHistorical: getUnifiedParameter(['show_historical'], 'false') === 'true',
   historicalData: getUnifiedParameter(['historical_data'], ''),
-  historicalDisplay: getUnifiedParameter(['historical_display'], 'bottom'),
+  historicalDisplay: normalizeHistoricalDisplay(getUnifiedParameter(['historical_display'], 'bottom')),
   historicalLabel: getUnifiedParameter(['historical_label'], 'Last Year'),
   total: getUnifiedParameter(['total'], ''),
   formatNumbers: getUnifiedParameter(['format_numbers'], 'false') === 'true',
@@ -344,9 +395,19 @@ function validateNumericInput(value, params, useSoftMessages) {
   if (!value || value === '') return { valid: true, message: '' }
 
   var unformattedValue = params.formatNumbers ? unformatNumber(value) : value
-  var num = parseFloat(unformattedValue)
+  var trimmed = String(unformattedValue).trim()
 
-  if (isNaN(num)) {
+  // Strict: full-string match. parseFloat would accept "12abc", "1.2.3",
+  // "10|20" — all of which would silently corrupt the saved answer because
+  // they pass range checks via their numeric prefix.
+  if (!STRICT_NUMERIC_RE.test(trimmed)) {
+    return {
+      valid: false,
+      message: useSoftMessages ? params.constraintMessageInvalidSoft : params.constraintMessageInvalid
+    }
+  }
+  var num = Number(trimmed)
+  if (!isFinite(num)) {
     return {
       valid: false,
       message: useSoftMessages ? params.constraintMessageInvalidSoft : params.constraintMessageInvalid
@@ -660,8 +721,38 @@ function setupResizeHandler(params) {
   })
 }
 
+/**
+ * Warn (in debug logs) when historical_data shape doesn't match rows x cols.
+ * This surfaces XLSForm misconfigurations during testing — most often caused
+ * by inline parameter values like `historical_data="${a},${b}|${c},${d}"`
+ * where some `${...}` evaluates to empty or contains a comma. Building the
+ * matrix in a single `concat()`-based calculate field avoids this.
+ */
+function validateHistoricalDataShape(params) {
+  if (!params.showHistorical || !params.historicalData) return
+
+  var data = params.historicalData
+  if (!Array.isArray(data)) return
+
+  if (data.length !== params.rows) {
+    debugLog('WARNING: historical_data has ' + data.length +
+      ' rows but the table expects ' + params.rows +
+      '. Build it in a calculate via concat() to avoid this.')
+  }
+
+  for (var r = 0; r < data.length; r++) {
+    if (Array.isArray(data[r]) && data[r].length !== params.cols) {
+      debugLog('WARNING: historical_data row ' + r + ' has ' +
+        data[r].length + ' cells but the table expects ' + params.cols +
+        '. A comma in a referenced value (e.g. thousands separator) usually causes this.')
+    }
+  }
+}
+
 function generateTable(params) {
   console.log('=== GENERATE TABLE (ENHANCED MODE) ===')
+
+  validateHistoricalDataShape(params)
   console.log('Params: rows=' + params.rows + ', cols=' + params.cols)
 
   // Apply intelligent header sizing based on column count and screen size
@@ -802,7 +893,7 @@ function generateTableBody(params) {
         histCell.className = 'historical-cell'
         var histValue = getHistoricalValue(params.historicalData, rowIndex, colIndex)
 
-        if (histValue !== null && histValue !== undefined) {
+        if (histValue !== null && histValue !== undefined && String(histValue).trim() !== '') {
           histCell.textContent = params.formatNumbers ? formatNumber(histValue, true) : histValue
           debugLog('Adding historical cell [' + rowIndex + '][' + colIndex + '] with value: "' + histValue + '"')
         } else {
@@ -883,7 +974,7 @@ function createCellContent(params, rowIndex, colIndex) {
     var histValue = getHistoricalValue(params.historicalData, rowIndex, colIndex)
     debugLog('Historical value for [' + rowIndex + '][' + colIndex + ']:', histValue)
 
-    if (histValue !== null && histValue !== undefined) {
+    if (histValue !== null && histValue !== undefined && String(histValue).trim() !== '') {
       var histSpan = document.createElement('span')
       histSpan.className = params.historicalDisplay === 'toggle' ? 'toggle-historical' : 'top-historical'
       histSpan.textContent = params.formatNumbers ? formatNumber(histValue, true) : histValue
@@ -946,7 +1037,7 @@ function createCellContent(params, rowIndex, colIndex) {
     var histValueBottom = getHistoricalValue(params.historicalData, rowIndex, colIndex)
     debugLog('Historical value (bottom) for [' + rowIndex + '][' + colIndex + ']:', histValueBottom)
 
-    if (histValueBottom !== null && histValueBottom !== undefined) {
+    if (histValueBottom !== null && histValueBottom !== undefined && String(histValueBottom).trim() !== '') {
       var histSpanBottom = document.createElement('span')
       histSpanBottom.className = 'bottom-historical'
       histSpanBottom.textContent = params.formatNumbers ? formatNumber(histValueBottom, true) : histValueBottom
@@ -1302,13 +1393,16 @@ function handleKeyboardNavigation(event, currentInput) {
 
   if (nextInput && event.key.startsWith('Arrow')) {
     event.preventDefault()
-    nextInput.focus()
+    // preventScroll: avoid the iframe (and its parent form) yanking the
+    // viewport when focus moves to an offscreen cell.
+    nextInput.focus({ preventScroll: true })
   }
 }
 
 function updateAnswer() {
   var params = getTableParameters()
   var answerMatrix = []
+  var allCells = [] // flat list, used for required-field validation
 
   for (var row = 0; row < params.rows; row++) {
     var rowData = []
@@ -1322,6 +1416,7 @@ function updateAnswer() {
       }
 
       rowData.push(value)
+      allCells.push(value)
     }
     answerMatrix.push(rowData.join(','))
   }
@@ -1408,7 +1503,7 @@ function updateAnswer() {
 
   // Now check plugin's required logic (validation has already passed if validation_strict was set)
   if (params.required === 1) {
-    checkAllRequired(answer)
+    checkAllRequired(allCells, answer)
     return // Exit here - checkAllRequired will handle setting the answer
   }
 
@@ -1435,36 +1530,38 @@ function updateAnswer() {
 }
 
 /**
- * Plugin's custom required field validation
- * Only used when required=1 parameter is set
- * @param {string} cellValues - Pipe-separated cell values
+ * Plugin's custom required field validation. Only used when required=1.
+ *
+ * Caller passes the flat cell array directly — we never re-parse the
+ * serialized string. Inferring format from delimiters (presence of ',')
+ * is unsafe: e.g., enhanced output for a 1-column table looks like
+ * "A|B|C" with no commas at all, which would be indistinguishable from
+ * legacy format and would incorrectly trim trailing-empty cells.
+ *
+ * @param {string[]} cells      - Flat array of every cell value, in order
+ * @param {string}   cellValues - Serialized matrix to set as the answer
+ *                                when validation passes
  */
-function checkAllRequired(cellValues) {
-  debugLog('Checking plugin required fields for values:', cellValues)
+function checkAllRequired(cells, cellValues) {
+  debugLog('Checking plugin required fields against ' +
+    (cells ? cells.length : 0) + ' cells')
 
-  if (!cellValues) {
+  if (!cells || cells.length === 0) {
     setAnswer('')
     return
   }
 
-  var tempArray = cellValues.split('|')
-
-  // Remove empty last element if it exists (common with pipe-separated data)
-  if (tempArray.length > 0 && tempArray[tempArray.length - 1] === '') {
-    tempArray.pop()
-  }
-
-  // Check if any cell is empty
-  var hasEmptyCell = tempArray.some(function (cell) {
-    return cell === '' || cell === null || cell === undefined
+  var hasEmptyCell = cells.some(function (cell) {
+    return cell === null || cell === undefined || String(cell).trim() === ''
   })
 
   if (hasEmptyCell) {
-    debugLog('Plugin required validation failed: empty cells found')
-    setAnswer('') // Block progression if required cells are empty
+    debugLog('Plugin required validation failed: at least one cell is empty')
+    setAnswer('') // Block progression if any cell is empty
   } else {
-    debugLog('Plugin required validation passed: all cells filled')
-    setAnswer(cellValues) // Allow progression when all cells are filled
+    debugLog('Plugin required validation passed: all ' + cells.length +
+      ' cells filled')
+    setAnswer(cellValues)
   }
 }
 
@@ -1745,12 +1842,14 @@ function getValues(e) {
 
   var cells = getTable.getElementsByTagName('input')
   var cellValues = ''
+  var allCells = [] // flat list, used for required-field validation
   var hasAnyValue = false
 
   for (var q = 0; q < cells.length; q++) {
     var cell = cells[q]
     var cellvalue = cell ? cell.value : ''
     cellValues = cellValues + cellvalue + '|'
+    allCells.push(cellvalue)
 
     // Check if any cell has a value
     if (cellvalue && cellvalue.trim() !== '') {
@@ -1782,7 +1881,7 @@ function getValues(e) {
 
   // We have data, proceed with normal logic
   if (required === 1) {
-    checkAllRequired(cellValues)
+    checkAllRequired(allCells, cellValues)
   } else {
     setAnswer(cellValues)
   }
@@ -1824,6 +1923,18 @@ function clearAnswer() {
   var hiddenInput = document.getElementById('answer-input')
   if (hiddenInput) {
     hiddenInput.value = ''
+    hiddenInput.removeAttribute('data-pending-answer')
+    hiddenInput.removeAttribute('data-invalid-answer')
+  }
+
+  // Clear the persisted metadata too. updateAnswer() writes cell values to
+  // metadata as a recovery mechanism, and loadExistingData() restores from
+  // metadata when CURRENT_ANSWER is empty. Without this clear, a user who
+  // explicitly clears the field would see stale values reappear next time
+  // the field is rendered.
+  if (typeof setMetaData === 'function') {
+    setMetaData('', true)
+    debugLog('Cleared persisted metadata')
   }
 
   // Clear the answer
@@ -2060,73 +2171,141 @@ function updateColumnTotals(params) {
 }
 
 // ====================
-// MAIN INITIALIZATION
+// STICKY-HEADER SCROLL CONTAINER
 // ====================
 
 /**
- * Constrain the table container height so the label and controls above it
- * always remain visible. The table becomes independently scrollable when
- * its content exceeds the available space.
+ * Pin the column header (thead) while rows scroll inside the plug-in.
+ *
+ * SurveyCTO field plug-ins run inside an iframe whose height is auto-sized
+ * to content by the host (Collect web/Android/iOS). To get a sticky thead,
+ * the table needs a *bounded*, *scrollable* container inside that iframe —
+ * which means we need to give #table-container an explicit pixel height.
+ *
+ * This mirrors the approach used by the official `timed-field-list`
+ * field plug-in:
+ *   - read the host viewport from parent.outerHeight (web) /
+ *     window.screen.height (mobile),
+ *   - subtract a platform-tuned chrome estimate (label, hint, controls,
+ *     form nav) plus the container's offset within the iframe,
+ *   - set #table-container.style.height to whatever is left.
+ *
+ * `frame_adjust` is a plug-in parameter that lets form authors nudge the
+ * computed height up or down for unusual form layouts.
  */
-function applyTableContainerHeight() {
+function applyTableContainerHeight(params) {
   var container = document.getElementById('table-container')
   if (!container) return
 
-  // Clear any previously set max-height so we can measure the table's natural height
-  container.style.maxHeight = ''
+  // Only the enhanced mode renders a thead worth pinning. Legacy mode skips.
+  var hasThead = !!container.querySelector('thead')
+  if (!hasThead) return
 
-  // The plugin runs inside an iframe. 100vh inside the iframe equals the iframe's
-  // own content height (because iframeResizer sizes the iframe to fit), which is
-  // useless for constraining. We need the PARENT window's viewport height instead.
-  var availableHeight
-  try {
-    availableHeight = window.parent.innerHeight
-  } catch (e) {
-    // Cross-origin: fall back to our own viewport (better than nothing)
-    availableHeight = window.innerHeight
+  // Cache the table's natural pixel height on the container element on the
+  // FIRST call only. Re-measuring on every resize causes the oscillation
+  // that older versions of this plug-in suffered from (clear height ->
+  // measure scrollHeight -> iframeResizer regrows iframe -> reapply
+  // height -> scroll position lost).
+  if (!container.dataset.naturalHeight) {
+    // At this point container has no explicit height, so its scrollHeight
+    // equals the natural content height.
+    container.dataset.naturalHeight = String(container.scrollHeight)
   }
+  var naturalHeight = parseInt(container.dataset.naturalHeight, 10) || 0
 
-  if (!availableHeight || availableHeight <= 0) return
-
-  // Measure everything above the table container (label, hint, controls)
-  var aboveHeight = 0
-  var sibling = container.previousElementSibling
-  while (sibling) {
-    var style = window.getComputedStyle(sibling)
-    if (style.display !== 'none' && style.visibility !== 'hidden') {
-      aboveHeight += sibling.offsetHeight
-      aboveHeight += parseInt(style.marginTop, 10) || 0
-      aboveHeight += parseInt(style.marginBottom, 10) || 0
+  var hostViewport
+  var chromeEstimate
+  if (isWebCollect) {
+    // outerHeight, not innerHeight: cross-origin allows reading outer*
+    // and it includes the toolbar — the chromeEstimate accounts for that.
+    try {
+      hostViewport = window.parent.outerHeight
+    } catch (e) {
+      hostViewport = window.outerHeight || window.innerHeight
     }
-    sibling = sibling.previousElementSibling
+    chromeEstimate = 355 // SurveyCTO web Collect chrome (toolbar + form header + nav)
+  } else {
+    // Mobile (Android/iOS Collect)
+    hostViewport = window.screen.height
+    chromeEstimate = 200 // form nav + soft-keyboard buffer
   }
 
-  // Account for container's own margins
-  var containerStyle = window.getComputedStyle(container)
-  var containerMargin = (parseInt(containerStyle.marginTop, 10) || 0) +
-    (parseInt(containerStyle.marginBottom, 10) || 0)
+  if (!hostViewport || hostViewport <= 0) return
 
-  // Reserve space for: content above table + container margins + SurveyCTO chrome
-  // (form header, nav buttons, padding). ~180px is a conservative estimate for
-  // the parent page chrome that surrounds the iframe.
-  var parentChrome = 180
-  var reservedHeight = aboveHeight + containerMargin + parentChrome
-  var maxTableHeight = availableHeight - reservedHeight
+  // Distance from top of iframe content to top of #table-container
+  // (covers the field label, hint, and historical-controls button).
+  var offsetTop = container.getBoundingClientRect().top
 
-  // Only constrain if the table's natural height actually exceeds available space.
-  // This lets small tables render at full size without unnecessary scrolling.
-  var tableNaturalHeight = container.scrollHeight
+  var available = hostViewport - offsetTop - chromeEstimate +
+    (params && params.frameAdjust ? params.frameAdjust : 0)
 
-  if (tableNaturalHeight > maxTableHeight && maxTableHeight > 100) {
-    container.style.maxHeight = maxTableHeight + 'px'
-    debugLog('Table container constrained: natural=' + tableNaturalHeight +
-      'px, max=' + maxTableHeight + 'px (parentVH=' + availableHeight +
-      ', above=' + aboveHeight + ', chrome=' + parentChrome + ')')
+  // Don't constrain when the table comfortably fits — small tables behave
+  // exactly like every other plug-in (no internal scroll, no sticky thead
+  // needed).
+  if (naturalHeight <= available || available < 150) {
+    container.style.height = ''
+    debugLog('Table container unconstrained: natural=' + naturalHeight +
+      'px <= available=' + available + 'px')
+    return
+  }
+
+  container.style.height = available + 'px'
+  debugLog('Table container constrained: natural=' + naturalHeight +
+    'px, height=' + available + 'px (hostVH=' + hostViewport +
+    ', offsetTop=' + offsetTop + ', chrome=' + chromeEstimate +
+    ', frameAdjust=' + (params ? params.frameAdjust : 0) + ')')
+}
+
+/**
+ * Wire resize handling to the parent window when running in web Collect,
+ * and to our own window otherwise. We deliberately do NOT listen on the
+ * iframe's own `resize` for web — iframeResizer fires that whenever
+ * content reflows (e.g. on every keystroke that changes layout), which
+ * would re-run the height calc for no reason and risk scroll-position
+ * glitches.
+ */
+function setupContainerResizeHandler(params) {
+  var resizeTimeout
+  function debouncedReapply() {
+    clearTimeout(resizeTimeout)
+    resizeTimeout = setTimeout(function () {
+      // A real viewport change can re-wrap row labels (via the column-width
+      // re-tune in setupResizeHandler), which changes the table's natural
+      // height. Invalidate the cache so applyTableContainerHeight re-measures
+      // against the new layout. Safe here because parent.onresize only fires
+      // on actual viewport changes — not on iframe content reflows.
+      var container = document.getElementById('table-container')
+      if (container) {
+        container.style.height = ''
+        delete container.dataset.naturalHeight
+      }
+      applyTableContainerHeight(params)
+    }, 200) // slightly longer than the 150ms column-width debounce so the
+    // row-label re-wrap finishes before we measure
+  }
+
+  if (isWebCollect) {
+    try {
+      // Append, don't overwrite — other plug-ins or host code may already
+      // have an onresize handler on the parent.
+      var prior = window.parent.onresize
+      window.parent.onresize = function (e) {
+        if (typeof prior === 'function') prior.call(window.parent, e)
+        debouncedReapply()
+      }
+    } catch (e) {
+      // Cross-origin: fall back to our own window. Less ideal but safe.
+      window.addEventListener('resize', debouncedReapply)
+    }
   } else {
-    debugLog('Table container unconstrained: natural=' + tableNaturalHeight +
-      'px fits within max=' + maxTableHeight + 'px')
+    // Mobile: orientation change fires window resize reliably.
+    window.addEventListener('resize', debouncedReapply)
   }
 }
+
+// ====================
+// MAIN INITIALIZATION
+// ====================
 
 function initializeTableGrid() {
   try {
@@ -2137,9 +2316,10 @@ function initializeTableGrid() {
     console.log('Mode detection - Enhanced mode:', useEnhancedMode)
     console.log('Unified params: rows=' + unifiedParams.rows + ', cols=' + unifiedParams.cols)
 
+    var enhancedParams = null
     if (useEnhancedMode) {
       console.log('>>> Using ENHANCED mode')
-      initializeEnhancedMode()
+      enhancedParams = initializeEnhancedMode()
     } else {
       console.log('>>> Using LEGACY mode')
       initializeLegacyMode()
@@ -2148,15 +2328,12 @@ function initializeTableGrid() {
     // Common initialization for both modes
     setupCommonFeatures()
 
-    // Constrain table container height so label stays visible
-    applyTableContainerHeight()
-
-    // Recalculate on resize (orientation change, window resize)
-    var resizeHeightTimeout
-    window.addEventListener('resize', function () {
-      clearTimeout(resizeHeightTimeout)
-      resizeHeightTimeout = setTimeout(applyTableContainerHeight, 200)
-    })
+    // Pin the thead via internal scroll (enhanced mode only — legacy has
+    // no thead worth pinning and its layout is left untouched).
+    if (useEnhancedMode) {
+      applyTableContainerHeight(enhancedParams)
+      setupContainerResizeHandler(enhancedParams)
+    }
 
   } catch (error) {
     debugLog('Error initializing table grid plugin:', error)
@@ -2209,6 +2386,8 @@ function initializeEnhancedMode() {
 
   // Apply responsive behavior
   setupResponsiveBehavior(params)
+
+  return params
 }
 
 /**

@@ -238,8 +238,9 @@
     overflow-x: auto;
     overflow-y: auto;
     margin: 1rem 0;
-    /* max-height is set dynamically by JS based on available viewport space */
-    /* This keeps the label and controls always visible above the table */
+    /* height is set dynamically by JS (applyTableContainerHeight) so the
+       column header (thead) stays pinned via position: sticky while rows
+       scroll. Pattern follows the timed-field-list field plug-in. */
 }
 
 .table-wrapper {
@@ -294,6 +295,11 @@
 .row-label-header {
     background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-row-header) 100%);
     position: sticky;
+    /* Corner cell: stick to both top and left so it anchors the table
+       when the user scrolls vertically (sticky thead) and horizontally
+       (sticky row labels). z-index 300 keeps it above thead (100) and
+       row-label (200). */
+    top: 0;
     left: 0;
     z-index: 300;
     font-weight: 600;
