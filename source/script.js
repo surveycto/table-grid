@@ -4,8 +4,9 @@
 // DEBUG MODE
 // ====================
 
-// Set to true for development debugging
-var DEBUG_MODE = true
+// Set to true for development debugging. Must be false in shipped builds —
+// otherwise every plug-in instance floods the host JS console.
+var DEBUG_MODE = false
 
 // Debug logging function
 function debugLog() {
@@ -40,6 +41,20 @@ function parsePositiveInt(value, fallback) {
   var n = parseInt(value, 10)
   if (isNaN(n) || n < 1) return fallback
   return n
+}
+
+// Whitespace-tokenized appearance check. Substring matching ('numbers' as
+// a substring of, say, 'numbers-only' or a prefixed 'custom-numbers-grid')
+// would false-match; tokenization treats the appearance value as a list of
+// space-separated keywords, which is how SurveyCTO documents the column.
+function hasAppearanceToken(token) {
+  var appearance = fieldProperties && fieldProperties.APPEARANCE
+  if (!appearance) return false
+  var tokens = String(appearance).split(/\s+/)
+  for (var i = 0; i < tokens.length; i++) {
+    if (tokens[i] === token) return true
+  }
+  return false
 }
 
 // Parse a numeric value or return null. Strict: rejects partial-number
@@ -82,11 +97,14 @@ function safeGetPluginParameter(name, defaultValue) {
 function getTableParameters() {
   debugLog('=== PARAMETER PARSING DEBUG ===')
 
+  // Honor the documented legacy aliases (columns/row_headers/column_headers).
+  // Without this, a form that sets columns=2 plus any enhanced flag would
+  // route to enhanced mode but silently fall back to cols=4 + missing labels.
   var rawParams = {
-    rows: safeGetPluginParameter('rows', '3'),
-    cols: safeGetPluginParameter('cols', '4'),
-    row_labels: safeGetPluginParameter('row_labels', ''),
-    col_labels: safeGetPluginParameter('col_labels', ''),
+    rows: getUnifiedParameter(['rows'], '3'),
+    cols: getUnifiedParameter(['cols', 'columns'], '4'),
+    row_labels: getUnifiedParameter(['row_labels', 'row_headers'], ''),
+    col_labels: getUnifiedParameter(['col_labels', 'column_headers'], ''),
     show_historical: safeGetPluginParameter('show_historical', 'false'),
     historical_data: safeGetPluginParameter('historical_data', ''),
     historical_display: safeGetPluginParameter('historical_display', 'bottom'),
@@ -113,7 +131,7 @@ function getTableParameters() {
     // rendering correctly. README documents top/bottom/columns/toggle only.
     historicalDisplay: normalizeHistoricalDisplay(rawParams.historical_display),
     historicalLabel: safeGetPluginParameter('historical_label', 'Last Year'),
-    numbersAppearance: fieldProperties.APPEARANCE && fieldProperties.APPEARANCE.includes('numbers'),
+    numbersAppearance: hasAppearanceToken('numbers'),
 
     required: parsePositiveInt(safeGetPluginParameter('required', '0'), 0),
 
@@ -338,8 +356,61 @@ function unformatNumber(formattedValue) {
   return cleaned
 }
 
-function filterDecimalInput(value, allowDecimals) {
+/**
+ * A grid is "numeric" when the form author has signalled numeric input via
+ * the `numbers` appearance, format_numbers=true, or min/max constraints.
+ * In numeric grids, comma→dot decimal-separator conversion is a feature.
+ * In text grids, the same conversion silently mutates user input ("Smith,
+ * John" → "Smith. John"), so it must be disabled.
+ */
+function isNumericGrid(params) {
+  if (!params) return false
+  return !!(params.numbersAppearance ||
+    params.formatNumbers ||
+    params.minValue !== null ||
+    params.maxValue !== null)
+}
+
+/**
+ * Strip characters that would corrupt the serialized answer format. Pipe
+ * separates rows in both legacy and enhanced output; comma separates
+ * columns in enhanced output. Keypress already blocks typed delimiters,
+ * but this catches pasted content (and a clipboard "1,234\n5,678" that
+ * would otherwise embed real commas / newlines into the matrix).
+ */
+function stripDelimiterChars(value, blockComma) {
   if (!value) return value
+  var out = String(value).replace(/\|/g, '').replace(/[\r\n\t]+/g, ' ')
+  if (blockComma) out = out.replace(/,/g, '')
+  return out
+}
+
+/**
+ * Apply stripDelimiterChars to an input element in place, preserving the
+ * caret position when possible.
+ */
+function sanitizeInputValue(input, blockComma) {
+  if (!input) return
+  var raw = input.value
+  var cleaned = stripDelimiterChars(raw, blockComma)
+  if (cleaned === raw) return
+  var pos = input.selectionStart != null ? input.selectionStart : cleaned.length
+  // Adjust caret for any chars stripped before it.
+  var removedBeforeCaret = raw.substring(0, pos).length - stripDelimiterChars(raw.substring(0, pos), blockComma).length
+  input.value = cleaned
+  try {
+    input.setSelectionRange(pos - removedBeforeCaret, pos - removedBeforeCaret)
+  } catch (e) {
+    // ignore — some input modes reject setSelectionRange
+  }
+}
+
+function filterDecimalInput(value, allowDecimals, isNumeric) {
+  if (!value) return value
+
+  // Outside numeric grids, leave the user's text alone — commas are valid
+  // text content there, and the comma→dot mutation would corrupt it.
+  if (!isNumeric) return value
 
   // Value should already be unformatted (no thousands separators) at this point
   // Only convert comma to dot if it appears to be a decimal separator
@@ -522,12 +593,23 @@ function showValidationMessage(input, message, isValid, isSoft) {
       // Position using fixed positioning relative to viewport
       positionValidationMessage(input, messageDiv)
 
+      // Remember the input so the scroll handler can reposition this
+      // tooltip when #table-container scrolls internally (the table has a
+      // bounded height to keep the thead pinned, so cell positions move
+      // even though the iframe doesn't scroll).
+      messageDiv._validationInput = input
+
       input.parentNode.appendChild(messageDiv)
     }
   }
 }
 
 function positionValidationMessage(input, messageDiv) {
+  // Re-positioning a previously placed tooltip: clear any previously chosen
+  // direction class so we don't accumulate position-top + position-bottom
+  // when the input scrolls past the viewport boundary.
+  messageDiv.classList.remove('position-top', 'position-bottom', 'position-left', 'position-right')
+
   var inputRect = input.getBoundingClientRect()
   var viewportHeight = window.innerHeight
   var viewportWidth = window.innerWidth
@@ -659,7 +741,7 @@ function applyIntelligentHeaderSizing(params) {
   root.style.setProperty('--row-header-width', rowWidth + 'px')
   root.style.setProperty('--row-header-max-width', rowMaxWidth + 'px')
 
-  console.log('Intelligent sizing: cols=' + effectiveCols +
+  debugLog('Intelligent sizing: cols=' + effectiveCols +
     ', rowWidth=' + rowWidth + 'px, rowMax=' + rowMaxWidth + 'px')
 
   // Return sizing values for direct application after table is built
@@ -675,15 +757,15 @@ function applyIntelligentHeaderSizing(params) {
  * Apply row header widths directly to elements (for table-layout: auto compatibility)
  */
 function applyRowHeaderWidths(sizing) {
-  console.log('=== applyRowHeaderWidths called ===')
+  debugLog('=== applyRowHeaderWidths called ===')
 
   if (!sizing) {
-    console.log('ERROR: No sizing object provided')
+    debugLog('ERROR: No sizing object provided')
     return
   }
 
   var rowLabels = document.querySelectorAll('.row-label, .gridTable th[scope="row"]')
-  console.log('Found row labels:', rowLabels.length)
+  debugLog('Found row labels:', rowLabels.length)
 
   for (var i = 0; i < rowLabels.length; i++) {
     rowLabels[i].style.width = sizing.rowWidth + 'px'
@@ -693,12 +775,12 @@ function applyRowHeaderWidths(sizing) {
     rowLabels[i].style.wordWrap = 'break-word'
     rowLabels[i].style.overflowWrap = 'break-word'
     var computed = window.getComputedStyle(rowLabels[i])
-    console.log('Row label ' + i + ' - width: ' + computed.width + ', white-space: ' + computed.whiteSpace + ', overflow: ' + computed.overflow)
+    debugLog('Row label ' + i + ' - width: ' + computed.width + ', white-space: ' + computed.whiteSpace + ', overflow: ' + computed.overflow)
   }
 
   // Also apply to corner cell
   var cornerCells = document.querySelectorAll('.row-label-header, .gridTable th:first-child')
-  console.log('Found corner cells:', cornerCells.length)
+  debugLog('Found corner cells:', cornerCells.length)
 
   for (var j = 0; j < cornerCells.length; j++) {
     cornerCells[j].style.width = sizing.rowWidth + 'px'
@@ -750,10 +832,10 @@ function validateHistoricalDataShape(params) {
 }
 
 function generateTable(params) {
-  console.log('=== GENERATE TABLE (ENHANCED MODE) ===')
+  debugLog('=== GENERATE TABLE (ENHANCED MODE) ===')
 
   validateHistoricalDataShape(params)
-  console.log('Params: rows=' + params.rows + ', cols=' + params.cols)
+  debugLog('Params: rows=' + params.rows + ', cols=' + params.cols)
 
   // Apply intelligent header sizing based on column count and screen size
   var sizing = applyIntelligentHeaderSizing(params)
@@ -799,7 +881,7 @@ function generateTable(params) {
   }
 
   table.appendChild(colgroup)
-  console.log('Generated colgroup with ' + (effectiveCols + 1) + ' columns')
+  debugLog('Generated colgroup with ' + (effectiveCols + 1) + ' columns')
 
   // Generate header
   debugLog('Generating header...')
@@ -818,13 +900,13 @@ function generateTable(params) {
   // Apply row header widths directly after table is in DOM
   applyRowHeaderWidths(sizing)
 
-  console.log('Table generated, setting up events...')
+  debugLog('Table generated, setting up events...')
   setupCellEventListeners()
 
-  console.log('Loading existing data...')
+  debugLog('Loading existing data...')
   loadExistingData(params)
 
-  console.log('=== END GENERATE TABLE ===')
+  debugLog('=== END GENERATE TABLE ===')
 }
 
 function generateTableHeader(params) {
@@ -877,8 +959,10 @@ function generateTableBody(params) {
     var row = document.createElement('tr')
     row.className = 'data-row'
 
-    // Row label cell
-    var labelCell = document.createElement('td')
+    // Row label cell. Rendered as <th scope="row"> (not <td>) for two
+    // reasons: it matches what legacy mode now does, and sticky on <th>
+    // is more reliable than sticky on <td> in Android System WebView.
+    var labelCell = document.createElement('th')
     var rowLabel = params.rowLabels[rowIndex] || 'Row ' + (rowIndex + 1)
     labelCell.textContent = unEntity(rowLabel)
     labelCell.className = 'row-label'
@@ -932,8 +1016,10 @@ function generateTableBody(params) {
     var totalRow = document.createElement('tr')
     totalRow.className = 'total-row'
 
-    // Empty cell for row label
-    var emptyCell = document.createElement('td')
+    // "Total" row label — rendered as <th scope="row"> for the same
+    // sticky-reliability reason as the data-row labels above.
+    var emptyCell = document.createElement('th')
+    emptyCell.setAttribute('scope', 'row')
     emptyCell.textContent = 'Total'
     emptyCell.className = 'row-label total-label'
     totalRow.appendChild(emptyCell)
@@ -1018,7 +1104,7 @@ function createCellContent(params, rowIndex, colIndex) {
   input.setAttribute('aria-label', 'Current value for ' + rowLabel + ' ' + colLabel)
 
   // Plugin required field handling
-  if (params.required === 1) {
+  if (params.required >= 1) {
     input.required = true
     input.setAttribute('aria-required', 'true')
     input.setAttribute('data-required', 'true')
@@ -1114,6 +1200,10 @@ function setupCellEventListeners() {
           return
         }
 
+        // Strip pasted delimiter chars before any other processing so they
+        // can't reach the serialized answer.
+        sanitizeInputValue(this, !isNumericGrid(params))
+
         var rawValue = this.value
         var cursorPosition = this.selectionStart
 
@@ -1132,7 +1222,7 @@ function setupCellEventListeners() {
           var workingValue = params.formatNumbers ? unformatNumber(rawValue) : rawValue
 
           // Apply decimal filtering on the unformatted value
-          var filteredValue = filterDecimalInput(workingValue, params.allowDecimals)
+          var filteredValue = filterDecimalInput(workingValue, params.allowDecimals, isNumericGrid(params))
 
           if (filteredValue !== workingValue) {
             // Value was modified by decimal filtering
@@ -1255,15 +1345,26 @@ function setupCellEventListeners() {
 
       // Handle keypress for decimal separator conversion
       input.addEventListener('keypress', function (e) {
+        // Pipe is the row separator in both legacy and enhanced answer
+        // formats — never let it through, regardless of grid type.
+        if (e.key === '|') {
+          e.preventDefault()
+          return
+        }
         if (!params.allowDecimals) {
           // Prevent decimal point entry (both comma and dot)
           if (e.key === '.' || e.key === ',') {
             e.preventDefault()
           }
         } else {
-          // Convert comma to dot for decimal separator (user-friendly)
+          // Convert comma to dot for decimal separator (user-friendly).
+          // In numeric grids the comma is treated as a decimal entry and
+          // rewritten to a dot. In text grids the comma is the column
+          // separator in enhanced mode, so we just block it instead of
+          // mutating the user's text.
           if (e.key === ',') {
             e.preventDefault()
+            if (!isNumericGrid(params)) return
             // Insert a dot instead
             var start = this.selectionStart
             var end = this.selectionEnd
@@ -1281,8 +1382,14 @@ function setupCellEventListeners() {
       debugLog('Setting up STANDARD input handling for input:', input)
       // Standard input handling with debouncing AND comma-to-dot conversion
       input.addEventListener('input', function () {
-        // Always convert commas to dots for numeric inputs (prevent column splitting)
-        if (params.numbersAppearance || params.allowDecimals) {
+        // Strip pasted delimiter chars first so they can't reach the
+        // serialized answer.
+        sanitizeInputValue(this, !isNumericGrid(params))
+
+        // Convert commas to dots only for numeric grids (prevent column
+        // splitting). In text grids the conversion mutates legitimate text
+        // input, so it's gated on isNumericGrid.
+        if (isNumericGrid(params)) {
           var rawValue = this.value
           var cursorPosition = this.selectionStart
 
@@ -1292,7 +1399,7 @@ function setupCellEventListeners() {
 
           if (!isLoadedValue) {
             // Apply comma-to-dot conversion
-            var filteredValue = filterDecimalInput(rawValue, params.allowDecimals)
+            var filteredValue = filterDecimalInput(rawValue, params.allowDecimals, true)
             if (filteredValue !== rawValue) {
               this.value = filteredValue
               // Try to maintain cursor position
@@ -1327,15 +1434,23 @@ function setupCellEventListeners() {
 
       // Handle keypress for decimal separator conversion
       input.addEventListener('keypress', function (e) {
+        // Always block the row delimiter.
+        if (e.key === '|') {
+          e.preventDefault()
+          return
+        }
         if (!params.allowDecimals) {
           // Prevent decimal point entry (both comma and dot)
           if (e.key === '.' || e.key === ',') {
             e.preventDefault()
           }
         } else {
-          // Convert comma to dot for decimal separator (user-friendly)
+          // Convert comma to dot for decimal separator (user-friendly) in
+          // numeric grids only; otherwise block the comma to keep enhanced
+          // mode's column separator intact.
           if (e.key === ',') {
             e.preventDefault()
+            if (!isNumericGrid(params)) return
             // Insert a dot instead
             var start = this.selectionStart
             var end = this.selectionEnd
@@ -1404,15 +1519,37 @@ function updateAnswer() {
   var answerMatrix = []
   var allCells = [] // flat list, used for required-field validation
 
+  // Whether the cell's text-comma should be treated as a numeric thousands
+  // separator (and stripped) at serialization time. In numeric grids,
+  // filterDecimalInput leaves "1,234" unchanged (it's a valid thousands
+  // formatting), but that value would then split into two enhanced cells
+  // when joined with ",". Strip the comma here to keep the invariant: an
+  // enhanced cell never contains a comma at the serialization boundary.
+  var stripCommaAsThousands = isNumericGrid(params)
+
   for (var row = 0; row < params.rows; row++) {
     var rowData = []
     for (var col = 0; col < params.cols; col++) {
       var input = document.querySelector('input[data-row="' + row + '"][data-col="' + col + '"]')
       var value = input ? input.value : ''
 
-      // Store unformatted values in the answer
-      if (params.formatNumbers && value) {
+      // Numeric: unformat thousands separators before serialization. This
+      // covers both format_numbers=true (display formatting on) and any
+      // other numeric-grid signal (min/max/numbers appearance) where the
+      // user manually typed thousands-style commas.
+      if (stripCommaAsThousands && value) {
         value = unformatNumber(value)
+      } else if (params.formatNumbers && value) {
+        // Legacy path retained for the (impossible-but-defensive) case
+        // where stripCommaAsThousands is false yet formatNumbers is true.
+        value = unformatNumber(value)
+      }
+
+      // Final invariant: every cell that's about to be joined with "," (the
+      // enhanced column delimiter) must not itself contain a comma, and no
+      // cell may contain "|" (the row delimiter) in either format.
+      if (typeof value === 'string') {
+        value = value.replace(/,/g, '').replace(/\|/g, '')
       }
 
       rowData.push(value)
@@ -1423,12 +1560,14 @@ function updateAnswer() {
 
   var answer = answerMatrix.join('|')
 
-  // ALWAYS persist cell values to metadata for recovery when navigating back
-  // This ensures partial data is never lost, even when validation blocks progression
-  if (typeof setMetaData === 'function') {
-    setMetaData(answer, true)
-    debugLog('Saved cell values to metadata for recovery')
-  }
+  // Earlier versions persisted the raw cell matrix to setMetaData on every
+  // keystroke as a "recovery" mechanism. That was unsafe: plug-in metadata
+  // is exported with the submission, so values that strict validation
+  // intentionally blocks (and that we deliberately keep out of setAnswer)
+  // were still leaking into the raw XML. Recovery now relies solely on
+  // setAnswer / CURRENT_ANSWER. Form authors who need persistent partial
+  // input should use required=0 and validation_strict=false so partial
+  // matrices flow through setAnswer normally.
 
   // Check if all cells are empty (critical for SurveyCTO's native required field handling)
   var allCellsEmpty = true
@@ -1448,7 +1587,7 @@ function updateAnswer() {
   if (allCellsEmpty) {
     debugLog('All cells empty')
 
-    if (params.required === 1) {
+    if (params.required >= 1) {
       debugLog('Plugin required=1: setting empty answer to block progression')
       setAnswer('')
     } else {
@@ -1502,7 +1641,7 @@ function updateAnswer() {
   }
 
   // Now check plugin's required logic (validation has already passed if validation_strict was set)
-  if (params.required === 1) {
+  if (params.required >= 1) {
     checkAllRequired(allCells, answer)
     return // Exit here - checkAllRequired will handle setting the answer
   }
@@ -1568,17 +1707,12 @@ function checkAllRequired(cells, cellValues) {
 function loadExistingData(params) {
   var currentAnswer = fieldProperties.CURRENT_ANSWER
 
-  // Fallback 1: Check metadata for persisted values (survives navigation, form exit/resume, crashes)
-  // This is the primary recovery mechanism for partial data that wasn't officially saved
-  if (!currentAnswer && typeof getMetaData === 'function') {
-    var metadataAnswer = getMetaData()
-    if (metadataAnswer) {
-      currentAnswer = metadataAnswer
-      debugLog('Recovered cell values from metadata:', currentAnswer)
-    }
-  }
+  // The previous metadata-based recovery path was removed in 2.0.30 to
+  // close a data-leak bug — see updateAnswer for the rationale. We rely on
+  // CURRENT_ANSWER (whatever setAnswer last persisted) plus the hidden
+  // input fallback below for in-session partial recovery.
 
-  // Fallback 2: Check for pending answer from failed validation (stored in hidden input)
+  // Fallback: Check for pending answer from failed validation (stored in hidden input)
   if (!currentAnswer) {
     var hiddenInput = document.getElementById('answer-input')
     var pendingAnswer = hiddenInput ? hiddenInput.getAttribute('data-pending-answer') : null
@@ -1716,8 +1850,8 @@ if (prevAnswer != null) {
  * Generate legacy table using unified parameters for consistency
  */
 function generateLegacyTable() {
-  console.log('=== GENERATE TABLE (LEGACY MODE) ===')
-  console.log('Params: rows=' + unifiedParams.rows + ', cols=' + unifiedParams.cols)
+  debugLog('=== GENERATE TABLE (LEGACY MODE) ===')
+  debugLog('Params: rows=' + unifiedParams.rows + ', cols=' + unifiedParams.cols)
 
   // Apply intelligent header sizing for legacy mode
   var legacyParams = {
@@ -1732,7 +1866,7 @@ function generateLegacyTable() {
 
   // Determine field appearance
   var fieldAppearance = 'text'
-  if (fieldProperties.APPEARANCE && fieldProperties.APPEARANCE.includes('numbers')) {
+  if (hasAppearanceToken('numbers')) {
     fieldAppearance = 'number'
   }
 
@@ -1763,53 +1897,67 @@ function generateLegacyTable() {
     }
   }
 
-  var table = '<table id="gridTable" class="gridTable">'
+  // Build the table with DOM nodes and textContent. Earlier versions
+  // concatenated header strings into HTML and assigned via innerHTML; with
+  // dynamic ${...} references in headings the content can be respondent-
+  // or dataset-driven, which made HTML injection possible. Constructing
+  // nodes here keeps any markup in user data inert.
+  var table = document.createElement('table')
+  table.id = 'gridTable'
+  table.className = 'gridTable'
+
   for (var i = 0; i < legacyRows; i++) {
-    table += '<tr>'
+    var tr = document.createElement('tr')
 
     if (i > 0) {
-      // Data row - add row header
-      var rowHeader = rowHeadersArray[i - 1] || 'Row ' + i
-      table += '<th scope="row" class="default-hint-text-size" dir="auto">' + unEntity(rowHeader) + '</th>'
+      var rowHeaderTh = document.createElement('th')
+      rowHeaderTh.setAttribute('scope', 'row')
+      rowHeaderTh.className = 'default-hint-text-size'
+      rowHeaderTh.setAttribute('dir', 'auto')
+      // unEntity decodes &amp;/&lt;/&gt;/&quot;/&#39; before the value goes
+      // into textContent, matching how enhanced mode handles row labels.
+      rowHeaderTh.textContent = unEntity(rowHeadersArray[i - 1] || 'Row ' + i)
+      tr.appendChild(rowHeaderTh)
     } else {
-      // Header row - empty corner cell
-      table += '<th scope="col" class="default-hint-text-size"></th>'
+      var cornerTh = document.createElement('th')
+      cornerTh.setAttribute('scope', 'col')
+      cornerTh.className = 'default-hint-text-size'
+      tr.appendChild(cornerTh)
     }
 
     for (var j = 0; j < legacyColumns; j++) {
       if (i === 0) {
-        // Header row - add column headers
-        var headerText = columnHeadersArray[j] || 'Col ' + (j + 1)
-        table += '<th scope="col" class="default-hint-text-size sticky" dir="auto">' + unEntity(headerText) + '</th>'
+        var colTh = document.createElement('th')
+        colTh.setAttribute('scope', 'col')
+        colTh.className = 'default-hint-text-size sticky'
+        colTh.setAttribute('dir', 'auto')
+        colTh.textContent = unEntity(columnHeadersArray[j] || 'Col ' + (j + 1))
+        tr.appendChild(colTh)
       } else {
-        // Data row - add input cells
-        var inputAttrs = 'type="' + fieldAppearance + '" class="cell default-hint-text-size" dir="auto"'
-
-        if (unifiedParams.required === 1) {
-          inputAttrs += ' required'
+        var td = document.createElement('td')
+        var cellInput = document.createElement('input')
+        cellInput.type = fieldAppearance
+        cellInput.className = 'cell default-hint-text-size'
+        cellInput.setAttribute('dir', 'auto')
+        if (unifiedParams.required >= 1) {
+          cellInput.required = true
         }
-
-        table += '<td><input ' + inputAttrs + '></td>'
+        td.appendChild(cellInput)
+        tr.appendChild(td)
       }
     }
 
-    table += '</tr>'
-
-    if (i === 0) {
-      table += '</thead>'
-    }
+    table.appendChild(tr)
   }
-  table += '</table>'
 
-  // Insert table into container
   var div = document.getElementById('table-holder')
   if (div) {
-    div.innerHTML = table
-    // Apply row header widths directly after table is in DOM
+    div.innerHTML = ''
+    div.appendChild(table)
     applyRowHeaderWidths(sizing)
-    console.log('Legacy table generated successfully')
+    debugLog('Legacy table generated successfully')
   } else {
-    console.log('Table holder not found')
+    debugLog('Table holder not found')
   }
 }
 
@@ -1831,7 +1979,17 @@ function setupLegacyEventListeners() {
   for (var p = 0; p < cellsLength; p++) {
     var cell = cells[p]
     if (cell) {
+      // Sanitize before getValues runs so the serialized answer never
+      // contains the pipe row separator (legacy mode joins cells with '|').
+      // Commas are fine in legacy mode — its format is single-delimiter.
+      cell.addEventListener('input', function () {
+        sanitizeInputValue(this, false)
+      })
       cell.addEventListener('input', getValues)
+      // Block typed pipes too so the user gets immediate feedback.
+      cell.addEventListener('keypress', function (e) {
+        if (e.key === '|') e.preventDefault()
+      })
     }
   }
 }
@@ -1848,6 +2006,12 @@ function getValues(e) {
   for (var q = 0; q < cells.length; q++) {
     var cell = cells[q]
     var cellvalue = cell ? cell.value : ''
+    // Final invariant for legacy format: cell values must never contain
+    // the '|' row delimiter. Input filtering already blocks typed/pasted
+    // pipes; this strips any that slipped through (e.g. legacy data).
+    if (typeof cellvalue === 'string') {
+      cellvalue = cellvalue.replace(/\|/g, '')
+    }
     cellValues = cellValues + cellvalue + '|'
     allCells.push(cellvalue)
 
@@ -1857,17 +2021,14 @@ function getValues(e) {
     }
   }
 
-  // ALWAYS persist cell values to metadata for recovery when navigating back
-  if (typeof setMetaData === 'function') {
-    setMetaData(cellValues, true)
-    debugLog('Legacy mode: Saved cell values to metadata for recovery')
-  }
+  // (Legacy mode previously persisted cellValues via setMetaData; removed
+  // in 2.0.30 — see updateAnswer for the rationale.)
 
   // CRITICAL: Handle empty state properly
   if (!hasAnyValue) {
     debugLog('Legacy mode: All cells empty')
 
-    if (required === 1) {
+    if (required >= 1) {
       debugLog('Legacy mode - Plugin required=1: setting empty answer to block progression')
       setAnswer('')
     } else {
@@ -1880,7 +2041,7 @@ function getValues(e) {
   }
 
   // We have data, proceed with normal logic
-  if (required === 1) {
+  if (required >= 1) {
     checkAllRequired(allCells, cellValues)
   } else {
     setAnswer(cellValues)
@@ -1927,15 +2088,9 @@ function clearAnswer() {
     hiddenInput.removeAttribute('data-invalid-answer')
   }
 
-  // Clear the persisted metadata too. updateAnswer() writes cell values to
-  // metadata as a recovery mechanism, and loadExistingData() restores from
-  // metadata when CURRENT_ANSWER is empty. Without this clear, a user who
-  // explicitly clears the field would see stale values reappear next time
-  // the field is rendered.
-  if (typeof setMetaData === 'function') {
-    setMetaData('', true)
-    debugLog('Cleared persisted metadata')
-  }
+  // (No metadata to clear — the metadata persistence path was removed in
+  // 2.0.30 to prevent leaking validation-blocked values into the
+  // submission's raw XML.)
 
   // Clear the answer
   setAnswer('')
@@ -1996,7 +2151,14 @@ function setFocus() {
  */
 function unEntity(str) {
   if (!str) return ''
-  return str.replace(/</g, '<').replace(/>/g, '>').replace(/&/g, '&')
+  // Order matters: decode &amp; last so we don't double-decode entities like
+  // &amp;lt; (which should decode to "&lt;", not "<").
+  return str
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
 }
 
 // RTL language detection
@@ -2175,20 +2337,46 @@ function updateColumnTotals(params) {
 // ====================
 
 /**
+ * Ask the host iframe to re-measure the plug-in. SurveyCTO web Collect
+ * embeds plug-ins through iframeResizer, which exposes a child-side API
+ * at `window.parentIFrame`. After we change `#table-container`'s
+ * max-height the iframe element on the parent may still be sized to the
+ * old content height, leaving an empty band below the table; calling
+ * `parentIFrame.size()` triggers the parent to recompute and resize.
+ *
+ * No-op outside web Collect (Android/iOS Collect don't load
+ * iframeResizer) — the typeof guard handles that.
+ */
+function requestHostResize() {
+  requestAnimationFrame(function () {
+    try {
+      if (window.parentIFrame &&
+        typeof window.parentIFrame.size === 'function') {
+        window.parentIFrame.size()
+      }
+    } catch (e) {
+      // Cross-origin or detached: ignore. The plug-in still works; the
+      // parent iframe just won't re-measure on this tick.
+    }
+  })
+}
+
+/**
  * Pin the column header (thead) while rows scroll inside the plug-in.
  *
  * SurveyCTO field plug-ins run inside an iframe whose height is auto-sized
  * to content by the host (Collect web/Android/iOS). To get a sticky thead,
- * the table needs a *bounded*, *scrollable* container inside that iframe —
- * which means we need to give #table-container an explicit pixel height.
+ * the table needs a bounded scroll context. We use `max-height` on
+ * `#table-container` so:
+ *   - small tables remain unconstrained and the container collapses to
+ *     natural content height (no white band below the data),
+ *   - large tables get clipped to the available viewport, which makes the
+ *     container scrollable and the sticky thead actually pin.
  *
- * This mirrors the approach used by the official `timed-field-list`
- * field plug-in:
- *   - read the host viewport from parent.outerHeight (web) /
- *     window.screen.height (mobile),
- *   - subtract a platform-tuned chrome estimate (label, hint, controls,
- *     form nav) plus the container's offset within the iframe,
- *   - set #table-container.style.height to whatever is left.
+ * No more `dataset.naturalHeight` cache: with max-height the container's
+ * `scrollHeight` already reflects natural height on every recompute, so
+ * the cache is unnecessary (and was the cause of stale-measurement bugs
+ * when row labels re-wrapped after a viewport change).
  *
  * `frame_adjust` is a plug-in parameter that lets form authors nudge the
  * computed height up or down for unusual form layouts.
@@ -2201,23 +2389,14 @@ function applyTableContainerHeight(params) {
   var hasThead = !!container.querySelector('thead')
   if (!hasThead) return
 
-  // Cache the table's natural pixel height on the container element on the
-  // FIRST call only. Re-measuring on every resize causes the oscillation
-  // that older versions of this plug-in suffered from (clear height ->
-  // measure scrollHeight -> iframeResizer regrows iframe -> reapply
-  // height -> scroll position lost).
-  if (!container.dataset.naturalHeight) {
-    // At this point container has no explicit height, so its scrollHeight
-    // equals the natural content height.
-    container.dataset.naturalHeight = String(container.scrollHeight)
-  }
-  var naturalHeight = parseInt(container.dataset.naturalHeight, 10) || 0
+  // Clear any prior max-height before measuring so scrollHeight reflects
+  // the natural content height, not a previously-applied clamp.
+  container.style.maxHeight = ''
+  var naturalHeight = container.scrollHeight
 
   var hostViewport
   var chromeEstimate
   if (isWebCollect) {
-    // outerHeight, not innerHeight: cross-origin allows reading outer*
-    // and it includes the toolbar — the chromeEstimate accounts for that.
     try {
       hostViewport = window.parent.outerHeight
     } catch (e) {
@@ -2230,30 +2409,30 @@ function applyTableContainerHeight(params) {
     chromeEstimate = 200 // form nav + soft-keyboard buffer
   }
 
-  if (!hostViewport || hostViewport <= 0) return
-
-  // Distance from top of iframe content to top of #table-container
-  // (covers the field label, hint, and historical-controls button).
-  var offsetTop = container.getBoundingClientRect().top
-
-  var available = hostViewport - offsetTop - chromeEstimate +
-    (params && params.frameAdjust ? params.frameAdjust : 0)
-
-  // Don't constrain when the table comfortably fits — small tables behave
-  // exactly like every other plug-in (no internal scroll, no sticky thead
-  // needed).
-  if (naturalHeight <= available || available < 150) {
-    container.style.height = ''
-    debugLog('Table container unconstrained: natural=' + naturalHeight +
-      'px <= available=' + available + 'px')
+  if (!hostViewport || hostViewport <= 0) {
+    requestHostResize()
     return
   }
 
-  container.style.height = available + 'px'
-  debugLog('Table container constrained: natural=' + naturalHeight +
-    'px, height=' + available + 'px (hostVH=' + hostViewport +
-    ', offsetTop=' + offsetTop + ', chrome=' + chromeEstimate +
-    ', frameAdjust=' + (params ? params.frameAdjust : 0) + ')')
+  var offsetTop = container.getBoundingClientRect().top
+  var available = hostViewport - offsetTop - chromeEstimate +
+    (params && params.frameAdjust ? params.frameAdjust : 0)
+
+  if (naturalHeight <= available || available < 150) {
+    // Small enough to render at natural height — leave max-height cleared.
+    debugLog('Table container unconstrained: natural=' + naturalHeight +
+      'px <= available=' + available + 'px')
+  } else {
+    container.style.maxHeight = available + 'px'
+    debugLog('Table container constrained: natural=' + naturalHeight +
+      'px, maxHeight=' + available + 'px (hostVH=' + hostViewport +
+      ', offsetTop=' + offsetTop + ', chrome=' + chromeEstimate +
+      ', frameAdjust=' + (params ? params.frameAdjust : 0) + ')')
+  }
+
+  // Ask the parent iframe to re-measure so any whitespace below the
+  // plug-in collapses (or grows, when max-height was just lifted).
+  requestHostResize()
 }
 
 /**
@@ -2269,16 +2448,11 @@ function setupContainerResizeHandler(params) {
   function debouncedReapply() {
     clearTimeout(resizeTimeout)
     resizeTimeout = setTimeout(function () {
-      // A real viewport change can re-wrap row labels (via the column-width
-      // re-tune in setupResizeHandler), which changes the table's natural
-      // height. Invalidate the cache so applyTableContainerHeight re-measures
-      // against the new layout. Safe here because parent.onresize only fires
-      // on actual viewport changes — not on iframe content reflows.
-      var container = document.getElementById('table-container')
-      if (container) {
-        container.style.height = ''
-        delete container.dataset.naturalHeight
-      }
+      // applyTableContainerHeight clears max-height before measuring, so
+      // we don't need to reset state here. (Older versions also wiped a
+      // dataset.naturalHeight cache; that cache was removed when we
+      // switched to max-height — scrollHeight is now re-derived on every
+      // call against the actual layout.)
       applyTableContainerHeight(params)
     }, 200) // slightly longer than the 150ms column-width debounce so the
     // row-label re-wrap finishes before we measure
@@ -2303,25 +2477,59 @@ function setupContainerResizeHandler(params) {
   }
 }
 
+/**
+ * Keep validation tooltips anchored to their inputs while the user scrolls
+ * inside the bounded #table-container. The tooltips use position: fixed and
+ * are placed once at creation time using getBoundingClientRect; without a
+ * scroll listener they would drift away from their inputs as rows scroll.
+ */
+function setupValidationScrollHandler() {
+  var container = document.getElementById('table-container')
+  if (!container) return
+
+  var rafId = null
+  function reposition() {
+    rafId = null
+    var messages = document.querySelectorAll('.validation-message')
+    for (var i = 0; i < messages.length; i++) {
+      var msg = messages[i]
+      var input = msg._validationInput
+      if (input && document.body.contains(input)) {
+        positionValidationMessage(input, msg)
+      }
+    }
+  }
+
+  function onScroll() {
+    if (rafId !== null) return
+    rafId = requestAnimationFrame(reposition)
+  }
+
+  container.addEventListener('scroll', onScroll, { passive: true })
+  // Window scroll matters too — outer iframe scroll can also shift the
+  // viewport-relative coordinates of cells.
+  window.addEventListener('scroll', onScroll, { passive: true })
+}
+
 // ====================
 // MAIN INITIALIZATION
 // ====================
 
 function initializeTableGrid() {
   try {
-    console.log('=== TABLE GRID INITIALIZATION ===')
+    debugLog('=== TABLE GRID INITIALIZATION ===')
 
     // Determine which mode to use
     var useEnhancedMode = shouldUseEnhancedMode()
-    console.log('Mode detection - Enhanced mode:', useEnhancedMode)
-    console.log('Unified params: rows=' + unifiedParams.rows + ', cols=' + unifiedParams.cols)
+    debugLog('Mode detection - Enhanced mode:', useEnhancedMode)
+    debugLog('Unified params: rows=' + unifiedParams.rows + ', cols=' + unifiedParams.cols)
 
     var enhancedParams = null
     if (useEnhancedMode) {
-      console.log('>>> Using ENHANCED mode')
+      debugLog('>>> Using ENHANCED mode')
       enhancedParams = initializeEnhancedMode()
     } else {
-      console.log('>>> Using LEGACY mode')
+      debugLog('>>> Using LEGACY mode')
       initializeLegacyMode()
     }
 
@@ -2334,6 +2542,11 @@ function initializeTableGrid() {
       applyTableContainerHeight(enhancedParams)
       setupContainerResizeHandler(enhancedParams)
     }
+
+    // Keep validation tooltips anchored to their inputs as rows scroll.
+    // Wired for both modes: legacy has no internal scroll container but the
+    // window-scroll path still helps when the iframe itself scrolls.
+    setupValidationScrollHandler()
 
   } catch (error) {
     debugLog('Error initializing table grid plugin:', error)
@@ -2403,20 +2616,11 @@ function initializeLegacyMode() {
  * Setup features common to both modes
  */
 function setupCommonFeatures() {
-  // Handle field labels and hints with null checks
-  if (fieldProperties && fieldProperties.LABEL) {
-    var labelElement = document.querySelector('.label')
-    if (labelElement) {
-      labelElement.innerHTML = unEntity(fieldProperties.LABEL)
-    }
-  }
-
-  if (fieldProperties && fieldProperties.HINT) {
-    var hintElement = document.querySelector('.hint')
-    if (hintElement) {
-      hintElement.innerHTML = unEntity(fieldProperties.HINT)
-    }
-  }
+  // The label and hint are populated by the Mustache template at render
+  // time via {{{LABEL}}} / {{{HINT}}}. Earlier versions also overwrote
+  // those nodes here with `innerHTML = unEntity(...)` — a redundant write
+  // that, once unEntity actually decoded entities, became an HTML
+  // injection sink. Trust the template render and don't overwrite.
 
   // Set initial focus if not readonly
   if (fieldProperties && !fieldProperties.READONLY) {

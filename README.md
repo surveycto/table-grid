@@ -80,9 +80,20 @@ item-at(',', item-at('|', ${field}, R), C)         <-- single cell at row R, col
 1. Fork this repo
 1. Make changes to the files in the `source` directory.  
     * **Note:** be sure to update the `manifest.json` file as well.
-1. Zip the updated contents of the `source` directory.
-1. Rename the .zip file to *yourpluginname*.fieldplugin.zip (replace *yourpluginname* with the name you want to use for your plug-in).
-1. You may then attach your new .fieldplugin.zip file to your form as normal.
+1. Re-zip the four plug-in files **at the zip root** with no subdirectories. From the repo root:
+
+    ```bash
+    rm -f yourpluginname.fieldplugin.zip
+    (cd source && zip -X ../yourpluginname.fieldplugin.zip \
+        manifest.json template.html script.js style.css)
+    ```
+
+    Avoid `zip -r source/` or "compress the source folder" from a file
+    manager — those bundle every file in `source/` (including macOS
+    `.DS_Store` files), which SurveyCTO rejects because filenames inside
+    a plug-in must start with a letter.
+1. Rename `yourpluginname` in the command above to the name you want to use for your plug-in.
+1. You may then attach your new `.fieldplugin.zip` file to your form as normal.
 
 For more information about developing your own field plug-ins, please read the [developer documentation](https://github.com/surveycto/Field-plug-in-resources).
 
@@ -101,6 +112,23 @@ For more information about developing your own field plug-ins, please read the [
 | `numbers` appearance | Yes |
 
 ### Parameters
+
+> ⚠️ **Quote alphabetic values.** SurveyCTO evaluates appearance-parameter
+> values as XPath. Numeric literals (`rows=2`, `min_value=100`) and
+> `${field}` references work as bare tokens, but **bare alphabetic words
+> like `true`, `bottom`, `column` evaluate to an empty string** and the
+> plug-in will silently treat the parameter as unset. Always quote them:
+>
+> ```
+> ✅ show_historical='true', historical_display='bottom', total='column'
+> ❌ show_historical=true,   historical_display=bottom,   total=column
+> ```
+>
+> If a feature you set looks like it isn't engaging, this is the most
+> common cause. Quoting works for every alphabetic value the plug-in
+> accepts (`'true'`, `'false'`, `'top'`, `'bottom'`, `'columns'`,
+> `'toggle'`, `'row'`, `'column'`, etc.). `${...}` references should
+> remain unquoted.
 
 #### Basic Parameters (Legacy Support)
 

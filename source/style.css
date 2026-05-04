@@ -75,28 +75,40 @@
    SHARED TABLE STYLES (Both Legacy and Enhanced)
    ==================== */
 
-/* Base table styling that applies to both modes */
+/* Base table styling that applies to both modes.
+   border-collapse must be `separate` for position:sticky on cells to work
+   reliably (collapsed borders break sticky on WebKit and Android WebView).
+   overflow:hidden is removed from the table for the same reason — it makes
+   the table itself a scroll/clipping container, which then becomes sticky
+   cells' nearest-scrolling-ancestor and binds them to the wrong parent. */
 #table-container table,
 #table-container .data-table,
 #table-container .gridTable {
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     border: 2px solid var(--border-dark);
     letter-spacing: 0.5px;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
     width: 100%;
     border-radius: 8px;
-    overflow: hidden;
 }
 
-/* Base cell styling for both modes */
+/* Base cell styling for both modes.
+   Inner gridlines come from a single right+bottom border on each cell so
+   the visual stays "1px between cells" — with border-spacing:0 the right
+   border of cell N and the (absent) left border of cell N+1 don't stack.
+   First-row/first-column cells use the table's outer border for their
+   top/left edge. */
 #table-container td,
 #table-container th,
 #table-container .data-table th,
 #table-container .data-table td,
 #table-container .gridTable th,
 #table-container .gridTable td {
-    border: 1px solid var(--border-light);
+    border: 0;
+    border-right: 1px solid var(--border-light);
+    border-bottom: 1px solid var(--border-light);
     padding: 8px;
     text-align: center;
     vertical-align: middle;
@@ -139,10 +151,12 @@
    ==================== */
 
 #table-holder {
-    overflow: auto;
+    /* overflow:visible — let #table-container be the only scroll owner so
+       sticky row labels and column headers in legacy mode bind to the
+       same context as enhanced mode does. */
+    overflow: visible;
     width: 100%;
     margin: 0;
-    /* Remove margin to prevent double-spacing with parent .table-container */
 }
 
 .gridTable {
@@ -235,19 +249,29 @@
 
 .table-container {
     width: 100%;
-    overflow-x: auto;
-    overflow-y: auto;
+    /* Single scroll owner. Earlier versions had overflow on both
+       #table-container AND .table-wrapper, which created two competing
+       scroll contexts: vertical-sticky thead bound to the container,
+       horizontal-sticky row labels bound to the wrapper, and the two
+       never agreed. Collapsing to one container makes sticky predictable
+       in both axes. */
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    position: relative;
     margin: 1rem 0;
-    /* height is set dynamically by JS (applyTableContainerHeight) so the
-       column header (thead) stays pinned via position: sticky while rows
-       scroll. Pattern follows the timed-field-list field plug-in. */
+    /* max-height (not height) is set dynamically by JS
+       (applyTableContainerHeight) so the column header (thead) stays
+       pinned via position: sticky while rows scroll, but the container
+       still collapses to natural height when the table is short. */
 }
 
 .table-wrapper {
     width: 100%;
-    overflow-x: auto;
+    /* overflow:visible — the wrapper must NOT create its own scroll
+       context, otherwise sticky row labels get bound to the wrapper
+       instead of the actual scroll container. */
+    overflow: visible;
     margin: 0;
-    /* No additional margin */
 }
 
 .data-table {
@@ -273,9 +297,16 @@
     height: 44px;
 }
 
-.row-label {
+/* Selector covers both td.row-label (legacy uses td) and th.row-label
+   (enhanced renders row labels as <th scope="row"> for more reliable
+   sticky behavior on Android WebView). The opaque background-color is
+   important — sticky cells scroll over the table body, and a transparent
+   sticky cell shows the scrolling content underneath. */
+.row-label,
+th[scope="row"].row-label {
     text-align: left !important;
-    background: linear-gradient(90deg, var(--bg-row-header) 0%, #f1f3f4 100%);
+    background-color: var(--bg-row-header);
+    background-image: linear-gradient(90deg, var(--bg-row-header) 0%, #f1f3f4 100%);
     font-weight: 600;
     color: var(--text-primary);
     border-right: 2px solid var(--border-medium) !important;
@@ -293,12 +324,14 @@
 }
 
 .row-label-header {
-    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-row-header) 100%);
-    position: sticky;
     /* Corner cell: stick to both top and left so it anchors the table
        when the user scrolls vertically (sticky thead) and horizontally
        (sticky row labels). z-index 300 keeps it above thead (100) and
-       row-label (200). */
+       row-label (200). Opaque background-color is needed so other cells
+       can't show through during scroll. */
+    background-color: var(--bg-row-header);
+    background-image: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-row-header) 100%);
+    position: sticky;
     top: 0;
     left: 0;
     z-index: 300;
@@ -469,11 +502,18 @@
         --col-header-max-width: 120px;
     }
 
+    /* Keep min-width:600px so row-label sticky pinning still has horizontal
+       overflow to engage on narrow webviews; an earlier `min-width: 100%`
+       collapsed the table to viewport width and silently disabled the
+       feature here. `overflow: visible` is required because `overflow:
+       hidden` on the <table> binds sticky cells to the table itself
+       instead of #table-container — the WebKit/Android sticky-failure
+       mode this whole pass is meant to fix. */
     .data-table,
     .gridTable {
-        min-width: 100%;
+        min-width: 600px;
         border-radius: 8px;
-        overflow: hidden;
+        overflow: visible;
     }
 
     .cell-input,
@@ -636,12 +676,16 @@
    TOTAL CELL STYLES
    ==================== */
 
+/* Base styling for any total cell (row or column). Sticky positioning is
+   set by the attribute-targeted rules below — column-totals stick to the
+   bottom, row-totals stick to the right. v2.0.34 set sticky-bottom on
+   the base rule, which incorrectly anchored row-totals cells too. */
 .total-cell {
-    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-row-header) 100%);
+    background-color: var(--bg-row-header);
+    background-image: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-row-header) 100%);
     border: 2px solid var(--primary-blue) !important;
     font-weight: 700;
     color: var(--primary-blue-dark);
-    position: relative;
     text-align: right;
     vertical-align: middle;
     padding: 8px 12px;
@@ -649,6 +693,23 @@
     font-size: var(--font-size-base);
     min-width: 120px;
     letter-spacing: 0.02em;
+}
+
+/* Column totals: pin to the bottom of #table-container so the user can
+   always see column sums while typing in a tall table. */
+.total-cell[data-total-col],
+.total-cell[data-total-col-hist] {
+    position: sticky;
+    bottom: 0;
+    z-index: 100;
+}
+
+/* Row totals: pin to the right of #table-container so the per-row sum
+   stays in view as the user scrolls horizontally on a wide table. */
+.total-cell[data-total-row] {
+    position: sticky;
+    right: 0;
+    z-index: 100;
 }
 
 .total-cell::before {
@@ -662,18 +723,42 @@
 }
 
 .total-label {
-    background: linear-gradient(135deg, #e6f3ff 0%, var(--bg-historical) 100%);
+    /* Bottom-left corner of the totals row. Mirrors .row-label-header at
+       the top-left: sticky on both axes so it stays anchored under
+       both vertical and horizontal scroll. z-index 300 keeps it above
+       the totals row siblings (100) and the row-label sticky column
+       (200) when the user is scrolled to a corner.
+       NB: this rule sits later in the stylesheet than .row-label so the
+       sticky-bottom override here takes effect even though .row-label
+       sets z-index 200; both rules write `position: sticky` and we want
+       the bottom-anchor + higher z-index for the corner. */
+    background-color: var(--bg-historical);
+    background-image: linear-gradient(135deg, #e6f3ff 0%, var(--bg-historical) 100%);
     font-weight: 700;
     color: var(--primary-blue-dark);
     border-right: 2px solid var(--primary-blue) !important;
     font-family: var(--font-family-primary);
+    position: sticky;
+    left: 0;
+    bottom: 0;
+    z-index: 300;
 }
 
 .total-header {
-    background: linear-gradient(135deg, var(--primary-blue-dark) 0%, var(--primary-blue) 100%);
+    /* Top-right corner header (only present when total=row). Sticky on
+       both axes so it stays anchored when scrolling vertically (sticky
+       thead) and horizontally (sticky row-totals column).
+       z-index 300 keeps it above current-header (100) and the row-totals
+       sticky-right cells (100) when the user is at a corner. */
+    background-color: var(--primary-blue);
+    background-image: linear-gradient(135deg, var(--primary-blue-dark) 0%, var(--primary-blue) 100%);
     color: white;
     font-weight: 700;
     font-family: var(--font-family-primary);
+    position: sticky;
+    top: 0;
+    right: 0;
+    z-index: 300;
 }
 
 .historical-total {
