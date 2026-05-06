@@ -153,6 +153,7 @@ The following parameters enable advanced features:
 | `historical_display` | How to display historical data: `bottom` (default, below input), `top` (above input), `columns`, or `toggle`. |
 | `historical_label` | Label for historical data. Default is `"Last Year"`. |
 | `total` | Calculate totals: `row` for row totals, `column` for column totals. |
+| `total_label` | Label for the totals header/row. Default is `"Total"`. Set to e.g. `"Sum"` when respondents enter their own totals. |
 | `format_numbers` | Set to `true` to format numbers with comma separators (real-time formatting). Default is `false`. |
 | `min_value` | Minimum allowed value for numeric inputs. |
 | `max_value` | Maximum allowed value for numeric inputs. |

@@ -136,6 +136,7 @@ function getTableParameters() {
     required: parsePositiveInt(safeGetPluginParameter('required', '0'), 0),
 
     total: rawParams.total,
+    totalLabel: safeGetPluginParameter('total_label', 'Total'),
     formatNumbers: rawParams.format_numbers === 'true',
     minValue: parseNumericOrNull(rawParams.min_value),
     maxValue: parseNumericOrNull(rawParams.max_value),
@@ -296,6 +297,7 @@ var unifiedParams = {
   historicalDisplay: normalizeHistoricalDisplay(getUnifiedParameter(['historical_display'], 'bottom')),
   historicalLabel: getUnifiedParameter(['historical_label'], 'Last Year'),
   total: getUnifiedParameter(['total'], ''),
+  totalLabel: getUnifiedParameter(['total_label'], 'Total'),
   formatNumbers: getUnifiedParameter(['format_numbers'], 'false') === 'true',
   minValue: parseNumericOrNull(getUnifiedParameter(['min_value'], '')),
   maxValue: parseNumericOrNull(getUnifiedParameter(['max_value'], '')),
@@ -942,7 +944,7 @@ function generateTableHeader(params) {
   // Add total column header if needed
   if (params.total === 'row') {
     var totalHeader = document.createElement('th')
-    totalHeader.textContent = 'Total'
+    totalHeader.textContent = params.totalLabel || 'Total'
     totalHeader.className = 'total-header current-header'
     totalHeader.setAttribute('scope', 'col')
     headerRow.appendChild(totalHeader)
@@ -1016,11 +1018,11 @@ function generateTableBody(params) {
     var totalRow = document.createElement('tr')
     totalRow.className = 'total-row'
 
-    // "Total" row label — rendered as <th scope="row"> for the same
+    // Totals row label — rendered as <th scope="row"> for the same
     // sticky-reliability reason as the data-row labels above.
     var emptyCell = document.createElement('th')
     emptyCell.setAttribute('scope', 'row')
-    emptyCell.textContent = 'Total'
+    emptyCell.textContent = params.totalLabel || 'Total'
     emptyCell.className = 'row-label total-label'
     totalRow.appendChild(emptyCell)
 
@@ -2344,14 +2346,71 @@ function updateColumnTotals(params) {
  * old content height, leaving an empty band below the table; calling
  * `parentIFrame.size()` triggers the parent to recompute and resize.
  *
+ * On the first successful contact with parentIFrame we also pin the
+ * height calculation method to `bodyOffset`. iframeResizer's default
+ * heuristic samples both body offsetHeight and descendant scrollHeight
+ * on every event, which oscillates between the clipped container height
+ * and the full table scrollHeight as the user scrolls inside
+ * #table-container — producing a white band that flickers in and out
+ * below the table. `bodyOffset` ignores the inner scroll content and
+ * tracks only the body's own height, which is what we want.
+ *
  * No-op outside web Collect (Android/iOS Collect don't load
  * iframeResizer) — the typeof guard handles that.
  */
+var heightMethodPinned = false
+
+/**
+ * iframeResizer's child library (`window.parentIFrame`) is injected
+ * asynchronously after the parent finishes its handshake, so on the
+ * first `requestHostResize` at plug-in startup it is often still
+ * undefined. Without retrying we'd never pin the height method, and
+ * iframeResizer would stay on its default heuristic (which oscillates
+ * between bodyOffset and descendant scrollHeight as the user scrolls
+ * #table-container, producing the flickering white band below the
+ * table). Poll briefly until parentIFrame appears, then set the method
+ * once.
+ */
+function pinHeightMethod() {
+  if (heightMethodPinned) return
+  var attempts = 0
+  function tryPin() {
+    if (heightMethodPinned) return
+    try {
+      if (window.parentIFrame &&
+        typeof window.parentIFrame.setHeightCalculationMethod === 'function') {
+        window.parentIFrame.setHeightCalculationMethod('bodyOffset')
+        heightMethodPinned = true
+        debugLog('Pinned iframeResizer heightCalculationMethod=bodyOffset')
+        if (typeof window.parentIFrame.size === 'function') {
+          window.parentIFrame.size()
+        }
+        return
+      }
+    } catch (e) {
+      // ignore and retry
+    }
+    attempts++
+    if (attempts < 40) { // ~4s total at 100ms cadence
+      setTimeout(tryPin, 100)
+    } else {
+      debugLog('parentIFrame never appeared; height method not pinned (likely mobile Collect or non-iframe host)')
+    }
+  }
+  tryPin()
+}
+
 function requestHostResize() {
   requestAnimationFrame(function () {
     try {
       if (window.parentIFrame &&
         typeof window.parentIFrame.size === 'function') {
+        if (!heightMethodPinned &&
+          typeof window.parentIFrame.setHeightCalculationMethod === 'function') {
+          window.parentIFrame.setHeightCalculationMethod('bodyOffset')
+          heightMethodPinned = true
+          debugLog('Pinned iframeResizer heightCalculationMethod=bodyOffset (via requestHostResize)')
+        }
         window.parentIFrame.size()
       }
     } catch (e) {
@@ -2518,6 +2577,13 @@ function setupValidationScrollHandler() {
 function initializeTableGrid() {
   try {
     debugLog('=== TABLE GRID INITIALIZATION ===')
+
+    // Pin iframeResizer's height calculation method as early as possible.
+    // The default heuristic re-measures on scroll and oscillates between
+    // body offset and descendant scrollHeight, causing a white band
+    // below the table to flicker as the user scrolls. `bodyOffset`
+    // tracks only the body's own height, which is stable.
+    if (isWebCollect) pinHeightMethod()
 
     // Determine which mode to use
     var useEnhancedMode = shouldUseEnhancedMode()
