@@ -114,7 +114,11 @@ function getTableParameters() {
     max_value: safeGetPluginParameter('max_value', ''),
     allow_decimals: safeGetPluginParameter('allow_decimals', 'true'),
     validation_strict: safeGetPluginParameter('validation_strict', 'false'),
-    frame_adjust: safeGetPluginParameter('frame_adjust', '0')
+    frame_adjust: safeGetPluginParameter('frame_adjust', '0'),
+    row_label_width: safeGetPluginParameter('row_label_width', ''),
+    data_column_width: safeGetPluginParameter('data_column_width', ''),
+    column_widths: safeGetPluginParameter('column_widths', ''),
+    pinned_headers: safeGetPluginParameter('pinned_headers', 'auto')
   }
 
   debugLog('Raw parameters:', rawParams)
@@ -143,6 +147,20 @@ function getTableParameters() {
     allowDecimals: rawParams.allow_decimals !== 'false',
     validationStrict: rawParams.validation_strict === 'true',
     frameAdjust: parseInt(rawParams.frame_adjust, 10) || 0,
+
+    // Column width controls. `rowLabelWidth` and `dataColumnWidth` accept
+    // "<N>px" or "<N>%". `columnWidths` is a list (pipe- or comma-separated)
+    // that overrides the other two when present; entries may be unitless
+    // proportional shares ("2|1|1|1") or explicit "<N>px"/"<N>%". Parsing
+    // happens lazily in applyColumnWidths so cols-count is known.
+    rowLabelWidth: parseColumnWidth(rawParams.row_label_width),
+    dataColumnWidth: parseColumnWidth(rawParams.data_column_width),
+    columnWidths: rawParams.column_widths ? String(rawParams.column_widths).trim() : '',
+
+    // pinned_headers='auto' (default, current behavior), 'always' (force
+    // bounded scroll context), or 'never' (skip applyTableContainerHeight
+    // entirely — table renders at natural height, the form scrolls instead).
+    pinnedHeaders: normalizePinnedHeaders(rawParams.pinned_headers),
 
     // Constraint message parameters
     constraintMessageMin: safeGetPluginParameter('constraint_message_min', 'Value must be at least {min}'),
@@ -175,6 +193,28 @@ function parseLabels(labelString) {
   // Support both comma and pipe separators (pipe for legacy compatibility)
   var delimiter = cleanString.indexOf('|') >= 0 ? '|' : ','
   return cleanString.split(delimiter).map(function (s) { return s.trim() }).filter(function (s) { return s.length > 0 })
+}
+
+// Parse a width value in "<N>px" or "<N>%" form. Returns the original
+// string if valid, or null. Empty/null/undefined → null. Unit-less numbers
+// are treated as pixels (e.g., "220" → "220px") for ergonomics.
+var WIDTH_VALUE_RE = /^(\d+(?:\.\d+)?)\s*(px|%)?$/
+
+function parseColumnWidth(value) {
+  if (value === null || value === undefined || value === '') return null
+  var s = String(value).trim()
+  if (!s) return null
+  var m = WIDTH_VALUE_RE.exec(s)
+  if (!m) return null
+  var unit = m[2] || 'px'
+  return m[1] + unit
+}
+
+function normalizePinnedHeaders(value) {
+  if (!value) return 'auto'
+  var v = String(value).trim().toLowerCase()
+  if (v === 'always' || v === 'never' || v === 'auto') return v
+  return 'auto'
 }
 
 /**
@@ -687,6 +727,13 @@ function applyIntelligentHeaderSizing(params) {
   // Apply to document root for CSS variable inheritance
   var root = document.documentElement
 
+  // If the form supplies explicit widths, skip the auto-sizing entirely —
+  // we don't want a window-resize event to overwrite the user's intent
+  // via setupResizeHandler/applyRowHeaderWidths.
+  if (params.columnWidths || params.rowLabelWidth || params.dataColumnWidth) {
+    return { userSupplied: true }
+  }
+
   var screenWidth = window.innerWidth || document.documentElement.clientWidth
   var effectiveCols = params.cols
 
@@ -766,6 +813,13 @@ function applyRowHeaderWidths(sizing) {
     return
   }
 
+  // If the form supplied explicit widths, the colgroup already has them.
+  // Don't fight it with inline JS styles on the cells.
+  if (sizing.userSupplied) {
+    debugLog('User-supplied column widths in effect, skipping row-label width override.')
+    return
+  }
+
   var rowLabels = document.querySelectorAll('.row-label, .gridTable th[scope="row"]')
   debugLog('Found row labels:', rowLabels.length)
 
@@ -833,6 +887,84 @@ function validateHistoricalDataShape(params) {
   }
 }
 
+/**
+ * Parse a column_widths spec into a list of CSS width strings, one per
+ * <col> element including the leading row-label column. Accepts:
+ *   - proportional shares: "2|1|1|1|1"  →  ["33.33%","16.66%",...]
+ *   - explicit pixels:     "250px|80px|80px|80px|80px"
+ *   - explicit percents:   "40%|15%|15%|15%|15%"
+ * Returns null if the spec is empty, malformed, or doesn't match the
+ * expected total column count (so the caller can fall back to other rules).
+ */
+function parseColumnWidthsSpec(spec, totalCols) {
+  if (!spec) return null
+  var clean = String(spec).replace(/^['"]|['"]$/g, '').trim()
+  if (!clean) return null
+
+  var delim = clean.indexOf('|') >= 0 ? '|' : ','
+  var parts = clean.split(delim).map(function (s) { return s.trim() }).filter(Boolean)
+  if (parts.length !== totalCols) {
+    debugLog('column_widths: got ' + parts.length + ' entries, expected ' + totalCols + ' — ignoring.')
+    return null
+  }
+
+  // Detect mode: if every entry is unit-less numeric, treat as proportional.
+  var allShares = parts.every(function (p) { return /^\d+(\.\d+)?$/.test(p) })
+  if (allShares) {
+    var sum = parts.reduce(function (a, p) { return a + parseFloat(p) }, 0)
+    if (sum <= 0) return null
+    return parts.map(function (p) {
+      return ((parseFloat(p) / sum) * 100).toFixed(4) + '%'
+    })
+  }
+
+  // Otherwise require every entry to parse as a width.
+  var widths = parts.map(parseColumnWidth)
+  if (widths.some(function (w) { return w === null })) {
+    debugLog('column_widths: malformed entry, ignoring spec.')
+    return null
+  }
+  return widths
+}
+
+/**
+ * Build the table <colgroup>. Width-resolution priority:
+ *   1. column_widths (full per-column override)
+ *   2. row_label_width / data_column_width (Tier 1 convenience)
+ *   3. intelligent sizing defaults from applyIntelligentHeaderSizing
+ */
+function buildColgroup(params, effectiveCols, sizing) {
+  var colgroup = document.createElement('colgroup')
+  var totalCols = effectiveCols + 1
+  var widths = parseColumnWidthsSpec(params.columnWidths, totalCols)
+
+  // Row label column
+  var rowHeaderCol = document.createElement('col')
+  if (widths) {
+    rowHeaderCol.style.width = widths[0]
+  } else if (params.rowLabelWidth) {
+    rowHeaderCol.style.width = params.rowLabelWidth
+  } else if (sizing && sizing.rowWidth) {
+    rowHeaderCol.style.width = sizing.rowWidth + 'px'
+  }
+  // else: only dataColumnWidth was supplied — leave row-label col to CSS defaults
+  colgroup.appendChild(rowHeaderCol)
+
+  // Data columns
+  for (var c = 0; c < effectiveCols; c++) {
+    var dataCol = document.createElement('col')
+    if (widths) {
+      dataCol.style.width = widths[c + 1]
+    } else if (params.dataColumnWidth) {
+      dataCol.style.width = params.dataColumnWidth
+    }
+    // else: leave unset so table-layout: fixed splits remaining space evenly
+    colgroup.appendChild(dataCol)
+  }
+
+  return colgroup
+}
+
 function generateTable(params) {
   debugLog('=== GENERATE TABLE (ENHANCED MODE) ===')
 
@@ -858,15 +990,7 @@ function generateTable(params) {
   table.setAttribute('role', 'table')
   table.setAttribute('aria-label', 'Data entry table with ' + (params.showHistorical ? 'historical data' : 'current data only'))
 
-  // Generate colgroup for explicit column widths (important for table-layout: fixed)
-  var colgroup = document.createElement('colgroup')
-
-  // Row header column
-  var rowHeaderCol = document.createElement('col')
-  rowHeaderCol.style.width = sizing.rowWidth + 'px'
-  colgroup.appendChild(rowHeaderCol)
-
-  // Calculate data column width - distribute remaining space evenly
+  // Calculate effective column count (data side, excluding row label column).
   var effectiveCols = params.cols
   if (params.showHistorical && params.historicalDisplay === 'columns') {
     effectiveCols = params.cols * 2
@@ -875,13 +999,10 @@ function generateTable(params) {
     effectiveCols += 1
   }
 
-  // Data columns - use equal distribution
-  for (var c = 0; c < effectiveCols; c++) {
-    var dataCol = document.createElement('col')
-    // Let data columns auto-size by not setting explicit width
-    colgroup.appendChild(dataCol)
-  }
-
+  // Generate colgroup. If the form supplies column_widths or row_label_width,
+  // those win over the intelligent-sizing defaults; table-layout: fixed makes
+  // the col widths authoritative.
+  var colgroup = buildColgroup(params, effectiveCols, sizing)
   table.appendChild(colgroup)
   debugLog('Generated colgroup with ' + (effectiveCols + 1) + ' columns')
 
@@ -2361,6 +2482,48 @@ function updateColumnTotals(params) {
 var heightMethodPinned = false
 
 /**
+ * Seed an initial pixel max-height on #table-container at script load,
+ * BEFORE the table is rendered. Two reasons this matters:
+ *
+ *  1. iframeResizer measures body.offsetHeight on a tight schedule once
+ *     the plug-in iframe loads. If the table renders at full natural
+ *     height before our JS clamps anything, iframeResizer locks the
+ *     iframe at that larger size, leaving a visible gap between the
+ *     table and the form's "Next" button when applyTableContainerHeight
+ *     later reduces the container's height.
+ *
+ *  2. We can NOT use `max-height: <N>vh` in CSS for the initial cap,
+ *     because `vh` resolves against the iframe's own viewport — and the
+ *     iframe is sized to its content. That creates a feedback loop
+ *     (body ≈ Nvh, iframe ≈ body, vh shrinks) which collapses the
+ *     container to a tiny fixed-point height regardless of row count.
+ *
+ * The cap here is derived from the parent's window.innerHeight when
+ * accessible (it's stable; same-origin in the standard SurveyCTO host).
+ * Falls back to screen.height in cross-origin or non-iframe contexts.
+ * applyTableContainerHeight refines this later with parentIFrame.getPageInfo
+ * data once iframeResizer's child library is ready.
+ */
+function seedInitialContainerHeight() {
+  var container = document.getElementById('table-container')
+  if (!container) return
+  var parentVH = 0
+  try {
+    parentVH = (window.parent && window.parent.innerHeight) || 0
+  } catch (e) {
+    parentVH = 0
+  }
+  if (!parentVH) parentVH = window.screen ? window.screen.height : 800
+  // Reserve generous space for form chrome (toolbar, header, Next button,
+  // page padding) so the iframe never grows large enough that shrinking it
+  // later leaves a visible gap.
+  var cap = Math.max(280, parentVH - 320)
+  container.style.maxHeight = cap + 'px'
+  container.style.boxSizing = 'border-box'
+}
+seedInitialContainerHeight()
+
+/**
  * iframeResizer's child library (`window.parentIFrame`) is injected
  * asynchronously after the parent finishes its handshake, so on the
  * first `requestHostResize` at plug-in startup it is often still
@@ -2400,24 +2563,34 @@ function pinHeightMethod() {
   tryPin()
 }
 
-function requestHostResize() {
-  requestAnimationFrame(function () {
-    try {
-      if (window.parentIFrame &&
-        typeof window.parentIFrame.size === 'function') {
-        if (!heightMethodPinned &&
-          typeof window.parentIFrame.setHeightCalculationMethod === 'function') {
-          window.parentIFrame.setHeightCalculationMethod('bodyOffset')
-          heightMethodPinned = true
-          debugLog('Pinned iframeResizer heightCalculationMethod=bodyOffset (via requestHostResize)')
-        }
-        window.parentIFrame.size()
+function callParentSize() {
+  try {
+    if (window.parentIFrame &&
+      typeof window.parentIFrame.size === 'function') {
+      if (!heightMethodPinned &&
+        typeof window.parentIFrame.setHeightCalculationMethod === 'function') {
+        window.parentIFrame.setHeightCalculationMethod('bodyOffset')
+        heightMethodPinned = true
+        debugLog('Pinned iframeResizer heightCalculationMethod=bodyOffset (via requestHostResize)')
       }
-    } catch (e) {
-      // Cross-origin or detached: ignore. The plug-in still works; the
-      // parent iframe just won't re-measure on this tick.
+      window.parentIFrame.size()
     }
-  })
+  } catch (e) {
+    // Cross-origin or detached: ignore. The plug-in still works; the
+    // parent iframe just won't re-measure on this tick.
+  }
+}
+
+// Fire size() on a few staggered ticks. iframeResizer measures
+// document.body.offsetHeight on each call; after we clamp #table-container
+// the body height shrinks but layout-induced reflow can take a few frames
+// to settle. A single rAF call wasn't enough on web Collect — the iframe
+// would stay at the larger pre-clamp height, leaving a visible gap between
+// the table's bottom and the form's Next button.
+function requestHostResize() {
+  requestAnimationFrame(callParentSize)
+  setTimeout(callParentSize, 50)
+  setTimeout(callParentSize, 200)
 }
 
 /**
@@ -2432,39 +2605,110 @@ function requestHostResize() {
  *   - large tables get clipped to the available viewport, which makes the
  *     container scrollable and the sticky thead actually pin.
  *
- * No more `dataset.naturalHeight` cache: with max-height the container's
- * `scrollHeight` already reflects natural height on every recompute, so
- * the cache is unnecessary (and was the cause of stale-measurement bugs
- * when row labels re-wrapped after a viewport change).
+ * Measurement source: #table-wrapper.scrollHeight (wrapper has
+ * overflow:visible, so its scrollHeight reflects natural content height
+ * even while the container's max-height is set). Earlier versions cleared
+ * the container's max-height and read its scrollHeight; that worked but
+ * caused the iframe to briefly grow during the measure-then-clamp cycle,
+ * producing a white band that flickered into view as users scrolled.
  *
- * `frame_adjust` is a plug-in parameter that lets form authors nudge the
- * computed height up or down for unusual form layouts.
+ * Viewport source: parentIFrame.getPageInfo when available (web Collect
+ * via iframeResizer) — exact parent viewport + iframe offset, no chrome
+ * guess. Falls back to a window.parent.innerHeight heuristic otherwise.
+ *
+ * `frame_adjust` lets form authors nudge the computed height for unusual
+ * layouts. `pinned_headers='never'` opts out entirely (form scrolls
+ * instead of an internal scroll context); `'always'` forces the clamp.
  */
+// pageInfoCache: parent-viewport info from iframeResizer. Updated whenever
+// the parent fires a layout change (scroll/resize/focus) — much more
+// accurate than guessing chromeEstimate.
+var pageInfoCache = null
+var pageInfoSubscribed = false
+var pageInfoOnFirstUpdate = null
+
+function subscribePageInfo(onFirstUpdate) {
+  if (pageInfoSubscribed) return
+  pageInfoOnFirstUpdate = onFirstUpdate || null
+  try {
+    if (window.parentIFrame &&
+      typeof window.parentIFrame.getPageInfo === 'function') {
+      window.parentIFrame.getPageInfo(function (info) {
+        var hadCache = pageInfoCache !== null
+        pageInfoCache = info
+        if (!hadCache && typeof pageInfoOnFirstUpdate === 'function') {
+          // First time: re-run the layout calc with accurate data.
+          // Subsequent updates flow through setupContainerResizeHandler.
+          try { pageInfoOnFirstUpdate() } catch (e) { /* ignore */ }
+        }
+      })
+      pageInfoSubscribed = true
+    }
+  } catch (e) {
+    // Ignore — fall back to the heuristic path.
+  }
+}
+
 function applyTableContainerHeight(params) {
+  // Honor pinned_headers='never': skip the bounded-scroll layout entirely.
+  // Table renders at natural height; the form (host) handles scrolling.
+  // Use 'none' (not '') because the CSS rule sets max-height: 80vh as a
+  // safety cap — clearing the inline style would still leave the cap.
+  if (params && params.pinnedHeaders === 'never') {
+    var optoutContainer = document.getElementById('table-container')
+    if (optoutContainer) {
+      optoutContainer.style.maxHeight = 'none'
+      optoutContainer.style.overflow = 'visible'
+    }
+    requestHostResize()
+    return
+  }
+
   var container = document.getElementById('table-container')
   if (!container) return
 
-  // Only the enhanced mode renders a thead worth pinning. Legacy mode skips.
+  // Only the enhanced mode renders a thead worth pinning, unless the form
+  // explicitly forces it via pinned_headers='always'.
   var hasThead = !!container.querySelector('thead')
-  if (!hasThead) return
+  var forceClamp = params && params.pinnedHeaders === 'always'
+  if (!hasThead && !forceClamp) return
 
-  // Clear any prior max-height before measuring so scrollHeight reflects
-  // the natural content height, not a previously-applied clamp.
-  container.style.maxHeight = ''
-  var naturalHeight = container.scrollHeight
+  // Measure natural content height from the wrapper. Wrapper has
+  // overflow:visible (style.css) so its scrollHeight reflects natural
+  // layout height even when the container's max-height is currently set.
+  // No transient unclamping → no oscillation on the parent iframe height,
+  // which is what produced the white band under the table during scroll.
+  var wrapper = document.getElementById('table-wrapper')
+  var naturalHeight = wrapper && wrapper.scrollHeight
+    ? wrapper.scrollHeight
+    : container.scrollHeight
 
-  var hostViewport
-  var chromeEstimate
-  if (isWebCollect) {
+  var offsetTop = container.getBoundingClientRect().top
+  var hostViewport = 0
+  var chromeEstimate = 0
+  var source = 'heuristic'
+
+  // Prefer iframeResizer's pageInfo when available — it returns the parent's
+  // exact viewport height and the iframe's offset within it.
+  if (pageInfoCache && typeof pageInfoCache.windowHeight === 'number') {
+    var iframeTopInParent = typeof pageInfoCache.offsetTop === 'number'
+      ? pageInfoCache.offsetTop
+      : 0
+    var containerTopInParent = iframeTopInParent + offsetTop
+    hostViewport = pageInfoCache.windowHeight - containerTopInParent
+    // Small breathing room for the form's "Next" button.
+    chromeEstimate = 80
+    source = 'pageInfo'
+  } else if (isWebCollect) {
     try {
-      hostViewport = window.parent.outerHeight
+      hostViewport = (window.parent.innerHeight || window.parent.outerHeight) - offsetTop
     } catch (e) {
-      hostViewport = window.outerHeight || window.innerHeight
+      hostViewport = (window.outerHeight || window.innerHeight) - offsetTop
     }
-    chromeEstimate = 355 // SurveyCTO web Collect chrome (toolbar + form header + nav)
+    chromeEstimate = 220 // toolbar + form nav + buttons
   } else {
-    // Mobile (Android/iOS Collect)
-    hostViewport = window.screen.height
+    // Mobile (Android/iOS Collect): no iframeResizer.
+    hostViewport = window.screen.height - offsetTop
     chromeEstimate = 200 // form nav + soft-keyboard buffer
   }
 
@@ -2473,18 +2717,19 @@ function applyTableContainerHeight(params) {
     return
   }
 
-  var offsetTop = container.getBoundingClientRect().top
-  var available = hostViewport - offsetTop - chromeEstimate +
+  var available = hostViewport - chromeEstimate +
     (params && params.frameAdjust ? params.frameAdjust : 0)
 
-  if (naturalHeight <= available || available < 150) {
-    // Small enough to render at natural height — leave max-height cleared.
+  if ((naturalHeight <= available || available < 150) && !forceClamp) {
+    // Small enough to render at natural height — release any prior clamp.
+    container.style.maxHeight = ''
     debugLog('Table container unconstrained: natural=' + naturalHeight +
-      'px <= available=' + available + 'px')
+      'px <= available=' + available + 'px (' + source + ')')
   } else {
-    container.style.maxHeight = available + 'px'
+    var clamp = available < 150 ? 300 : available
+    container.style.maxHeight = clamp + 'px'
     debugLog('Table container constrained: natural=' + naturalHeight +
-      'px, maxHeight=' + available + 'px (hostVH=' + hostViewport +
+      'px, maxHeight=' + clamp + 'px (source=' + source +
       ', offsetTop=' + offsetTop + ', chrome=' + chromeEstimate +
       ', frameAdjust=' + (params ? params.frameAdjust : 0) + ')')
   }
@@ -2583,7 +2828,20 @@ function initializeTableGrid() {
     // body offset and descendant scrollHeight, causing a white band
     // below the table to flicker as the user scrolls. `bodyOffset`
     // tracks only the body's own height, which is stable.
-    if (isWebCollect) pinHeightMethod()
+    if (isWebCollect) {
+      pinHeightMethod()
+      // Re-run the height calc the moment iframeResizer hands us real
+      // page info. The first applyTableContainerHeight call further down
+      // runs synchronously with no pageInfoCache, so it falls back to a
+      // heuristic; we want the accurate clamp applied as soon as
+      // iframeResizer's first measurement lands. Defer with setTimeout
+      // so the init function has finished and enhancedParams is populated.
+      subscribePageInfo(function () {
+        setTimeout(function () {
+          try { applyTableContainerHeight(enhancedParams) } catch (e) { /* ignore */ }
+        }, 0)
+      })
+    }
 
     // Determine which mode to use
     var useEnhancedMode = shouldUseEnhancedMode()

@@ -160,6 +160,10 @@ The following parameters enable advanced features:
 | `allow_decimals` | Set to `false` to restrict inputs to whole numbers only. Default is `true`. |
 | `validation_strict` | Set to `true` to prevent form progression when validation fails (hard validation). **Important:** Must be used with SurveyCTO's native `required` set to `yes` for progression blocking to work. Set to `false` for soft validation with warnings. Default is `false`. |
 | `frame_adjust` | Pixel offset added to the auto-computed table height when the column header is pinned. Use a positive number to make the table area taller, negative to shrink it. Only useful when fine-tuning for unusual form layouts (long labels, large hint text). Default is `0`. |
+| `pinned_headers` | Controls the bounded-scroll layout that pins the column header and row labels. `auto` (default) only clamps when the table is taller than the available viewport. `always` forces the clamp. `never` disables it entirely — the table renders at natural height and the form scrolls instead. Use `never` if the bounded layout misbehaves on a particular form. |
+| `row_label_width` | Width of the first column (row labels). Accepts pixels (`220px`) or percentages (`35%`). When set, this overrides the auto-sizing for the row label column. Useful when long question labels are getting truncated or the data columns are too wide. |
+| `data_column_width` | Uniform width applied to every data column. Accepts pixels (`80px`) or percentages (`15%`). When set, the row-label column takes the remaining space (or honors `row_label_width` if also set). |
+| `column_widths` | Per-column override (one entry per column, including the row-label column, separated by `\|` or `,`). Three modes: **proportional shares** — unit-less numbers like `"2\|1\|1\|1\|1"` (first column gets 2/6 of the table width, each data column 1/6); **explicit pixels** — `"250px\|80px\|80px\|80px\|80px"`; **explicit percentages** — `"40%\|15%\|15%\|15%\|15%"`. When set, `column_widths` overrides `row_label_width` and `data_column_width`. The number of entries must match the table column count (rows + label column, plus any historical/total columns); otherwise the spec is ignored and the plug-in falls back to auto-sizing. |
 
 #### Validation Message Customization
 
@@ -192,7 +196,7 @@ Customize validation messages for better user experience:
 
 When the table is taller than the available space inside the field, the plug-in caps the table area to the visible height and pins the column header (and the row labels) so they remain visible while the user scrolls *inside* the table. Tables that comfortably fit are left alone — there is no internal scroll for short tables.
 
-The available height is computed from the host viewport and a built-in chrome estimate (~355px on web Collect, ~200px on Android/iOS Collect). For unusual form layouts — very long question labels, large hints, custom themes — use the `frame_adjust` parameter to add or subtract pixels:
+The available height is read from `parentIFrame.getPageInfo` when available (web Collect via iframeResizer) so the bounded area matches the parent's actual visible viewport. On Android/iOS Collect — where iframeResizer isn't present — the plug-in falls back to a heuristic based on screen height. For unusual form layouts — very long question labels, large hints, custom themes — use the `frame_adjust` parameter to add or subtract pixels, or set `pinned_headers='never'` to disable the bounded layout entirely:
 
 ```
 custom-table-grid(
@@ -200,6 +204,37 @@ custom-table-grid(
   cols=4,
   ...
   frame_adjust=-40   // shrink the visible table area by 40px
+)
+
+custom-table-grid(
+  rows=12,
+  cols=4,
+  ...
+  pinned_headers='never'   // disable internal scroll; let the form scroll instead
+)
+```
+
+#### Controlling column widths
+
+By default the plug-in chooses column widths based on column count and screen size. If your row labels are long (e.g. full questions) or your data columns are too wide for single numeric inputs, override the defaults:
+
+```
+custom-table-grid(
+  rows=5, cols=4,
+  row_labels="Total revenue, Operating expenses, Net income, Headcount, Capex",
+  col_labels="Q1, Q2, Q3, Q4",
+  row_label_width="40%",     // make the question column wider
+  data_column_width="15%"    // and each data column narrower
+)
+```
+
+For full per-column control (e.g. one wide notes column among narrow numeric columns), use `column_widths`:
+
+```
+custom-table-grid(
+  rows=3, cols=4,
+  col_labels="Q1, Q2, Notes, Q4",
+  column_widths="2|1|1|3|1"   // proportional shares: row-labels 2, Q1 1, Q2 1, Notes 3, Q4 1
 )
 ```
 

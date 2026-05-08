@@ -81,17 +81,52 @@
    overflow:hidden is removed from the table for the same reason — it makes
    the table itself a scroll/clipping container, which then becomes sticky
    cells' nearest-scrolling-ancestor and binds them to the wrong parent. */
+/* Outer border + radius live on #table-container, NOT on the table itself.
+   The container is the scroll owner (overflow:auto); when the border was
+   on the table, scrolling clipped the right/bottom edges and the rounded
+   corners were eaten by the container's clip rect. Moving the border to
+   the container keeps the outline visible regardless of scroll state.
+   box-sizing: border-box is critical: with width:100% and a 2px border,
+   content-box would push the right edge 2px past the parent and the
+   right border would be clipped by the iframe edge. */
+/* Zero the body's default 8px margin. iframeResizer's `bodyOffset` height
+   method measures body.offsetHeight, which excludes the body's own margin
+   — so when the parent sizes the iframe to that value, the body's bottom
+   margin (default 8px) extends BELOW the iframe's bottom edge, clipping
+   the last 8px of the container including its bottom border. With body
+   margin = 0, body.offsetHeight covers the full content height and the
+   container's bottom border lands inside the iframe.
+   The 4px margin on the container preserves a tiny visual buffer between
+   the table's bottom border and the iframe edge so descender/scrollbar
+   pixels aren't flush with the iframe boundary. */
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+#table-container {
+    border: 2px solid var(--border-dark);
+    border-radius: 8px;
+    box-sizing: border-box;
+    margin-bottom: 4px;
+    /* The initial height cap is set by JS at script-load time (see
+       seedInitialContainerHeight). DO NOT use `max-height: <N>vh` here
+       — `vh` resolves against the iframe's own height, and SurveyCTO
+       sizes the iframe to its content (body), creating a feedback loop
+       (body ≈ Nvh, iframe ≈ body, vh shrinks) that converged the table
+       to a tiny fixed-point height regardless of row count. */
+}
+
 #table-container table,
 #table-container .data-table,
 #table-container .gridTable {
     border-collapse: separate;
     border-spacing: 0;
-    border: 2px solid var(--border-dark);
+    border: 0;
     letter-spacing: 0.5px;
     font-family: var(--font-family-primary);
     font-size: var(--font-size-base);
     width: 100%;
-    border-radius: 8px;
 }
 
 /* Base cell styling for both modes.
