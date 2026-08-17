@@ -109,6 +109,8 @@ function getTableParameters() {
     historical_data: safeGetPluginParameter('historical_data', ''),
     historical_display: safeGetPluginParameter('historical_display', 'bottom'),
     total: safeGetPluginParameter('total', ''),
+    subtotals: safeGetPluginParameter('subtotals', ''),
+    grid_total: safeGetPluginParameter('grid_total', ''),
     format_numbers: safeGetPluginParameter('format_numbers', 'false'),
     min_value: safeGetPluginParameter('min_value', ''),
     max_value: safeGetPluginParameter('max_value', ''),
@@ -141,6 +143,7 @@ function getTableParameters() {
 
     total: rawParams.total,
     totalLabel: safeGetPluginParameter('total_label', 'Total'),
+    subtotalReferenceLabel: safeGetPluginParameter('subtotal_reference_label', 'Calculated'),
     formatNumbers: rawParams.format_numbers === 'true',
     minValue: parseNumericOrNull(rawParams.min_value),
     maxValue: parseNumericOrNull(rawParams.max_value),
@@ -173,6 +176,20 @@ function getTableParameters() {
     constraintMessageMaxSoft: safeGetPluginParameter('constraint_message_max_soft', 'Recommended maximum: {max}'),
     constraintMessageDecimalsSoft: safeGetPluginParameter('constraint_message_decimals_soft', 'Whole numbers preferred'),
     constraintMessageInvalidSoft: safeGetPluginParameter('constraint_message_invalid_soft', 'Please check this number')
+  }
+
+  // Subtotal groups. Parsed here (rather than at init) so every caller of
+  // getTableParameters sees the same model; errors are surfaced once, at
+  // render time, by generateTable.
+  params.subtotalConfig = parseSubtotalConfig(rawParams.subtotals, rawParams.grid_total, params.rows)
+
+  // total='row' renders a totals COLUMN on the right (the naming is
+  // counter-intuitive; see README). Subtotals sum down rows into a row, so
+  // the two layouts can't coexist.
+  if (params.subtotalConfig.configured && params.total === 'row') {
+    params.subtotalConfig.errors.push(
+      "total='row' adds a totals column on the right, which cannot be combined with subtotal groups. " +
+      "Subtotals sum down rows, so use total='column' or remove the total parameter.")
   }
 
   debugLog('Processed parameters:', params)
@@ -208,6 +225,195 @@ function parseColumnWidth(value) {
   if (!m) return null
   var unit = m[2] || 'px'
   return m[1] + unit
+}
+
+// ====================
+// SUBTOTAL GROUP PARSING
+// ====================
+
+/**
+ * Parse a source-row reference list: "1-3", "3,6,7", or "1-2,5".
+ *
+ * Row numbers in the parameter are 1-based, matching how an author counts
+ * their own row_labels list. Returned indices are 0-based, matching every
+ * other row index in this file.
+ *
+ * Returns null on any malformed token so the caller can fail loudly. Unlike
+ * column_widths — where ignoring a bad spec still yields a correct grid at
+ * default widths — a silently ignored subtotal spec renders a grid that
+ * looks complete and sums nothing.
+ */
+/**
+ * Strict positive-integer parse. parseInt is deliberately NOT used here:
+ * it stops at the first non-digit, so "3oops" would parse as 3 and "1-2junk"
+ * as 1-2. A typo in a subtotal spec must fail loudly, not silently resolve
+ * to a plausible-looking row number and sum the wrong cells.
+ */
+var ROW_INT_RE = /^\d+$/
+
+function parseStrictRowNumber(token) {
+  var t = String(token).trim()
+  if (!ROW_INT_RE.test(t)) return null
+  var n = parseInt(t, 10)
+  return isNaN(n) ? null : n
+}
+
+function parseRowRefs(spec, rows) {
+  if (spec === null || spec === undefined) return null
+  var out = []
+  var parts = String(spec).split(',')
+  for (var i = 0; i < parts.length; i++) {
+    var token = parts[i].trim()
+    if (!token) return null
+    var dash = token.indexOf('-')
+    if (dash > 0) {
+      var from = parseStrictRowNumber(token.slice(0, dash))
+      var to = parseStrictRowNumber(token.slice(dash + 1))
+      if (from === null || to === null) return null
+      if (from < 1 || to < 1 || from > rows || to > rows || to < from) return null
+      for (var r = from; r <= to; r++) out.push(r - 1)
+    } else {
+      var n = parseStrictRowNumber(token)
+      if (n === null || n < 1 || n > rows) return null
+      out.push(n - 1)
+    }
+  }
+  return out.length ? out : null
+}
+
+/** Parse one "<target>:<sources>" entry into 0-based indices, or null. */
+function parseGroupEntry(entry, rows) {
+  var colon = entry.indexOf(':')
+  if (colon < 1) return null
+  var target = parseStrictRowNumber(entry.slice(0, colon))
+  if (target === null || target < 1 || target > rows) return null
+  var sources = parseRowRefs(entry.slice(colon + 1), rows)
+  if (!sources) return null
+  return { target: target - 1, sources: sources }
+}
+
+/**
+ * Build the subtotal model from `subtotals` and `grid_total`.
+ *
+ * Groups come back in evaluation order — subtotal groups as declared, the
+ * grid total last — so a single pass computes nested sums correctly. That
+ * ordering is enforced, not assumed: a group that sums a subtotal declared
+ * later is a configuration error.
+ *
+ * One-off rows (AHA's "Other government", "Self-pay") need no configuration.
+ * They are ordinary rows listed among grid_total's sources, which is why
+ * nothing here can render a duplicate subtotal row for them.
+ */
+function parseSubtotalConfig(subtotalsSpec, gridTotalSpec, rows) {
+  var model = { configured: false, groups: [], targets: {}, errors: [] }
+
+  var haveSub = subtotalsSpec !== null && subtotalsSpec !== undefined && String(subtotalsSpec).trim() !== ''
+  var haveTotal = gridTotalSpec !== null && gridTotalSpec !== undefined && String(gridTotalSpec).trim() !== ''
+  if (!haveSub && !haveTotal) return model
+  model.configured = true
+
+  var entries = []
+
+  if (haveSub) {
+    var chunks = String(subtotalsSpec).split('|')
+    for (var i = 0; i < chunks.length; i++) {
+      var raw = chunks[i].trim()
+      if (!raw) continue
+      var g = parseGroupEntry(raw, rows)
+      if (!g) {
+        model.errors.push('subtotals: could not read "' + raw +
+          '". Expected <subtotal row>:<rows it sums>, for example 3:1-2. Row numbers start at 1 and must be between 1 and ' + rows + '.')
+        continue
+      }
+      g.isTotal = false
+      entries.push(g)
+    }
+  }
+
+  if (haveTotal) {
+    var traw = String(gridTotalSpec).trim()
+    if (traw.indexOf('|') >= 0) {
+      model.errors.push('grid_total: only one total row is supported, but more than one entry was given.')
+    } else {
+      var t = parseGroupEntry(traw, rows)
+      if (!t) {
+        model.errors.push('grid_total: could not read "' + traw +
+          '". Expected <total row>:<rows it sums>, for example 12:3,6,7. Row numbers start at 1 and must be between 1 and ' + rows + '.')
+      } else {
+        t.isTotal = true
+        entries.push(t)
+      }
+    }
+  }
+
+  var seenTarget = {}
+  for (var j = 0; j < entries.length; j++) {
+    var e = entries[j]
+    var label = (e.isTotal ? 'grid_total' : 'subtotals') + ': row ' + (e.target + 1)
+    var ok = true
+
+    if (seenTarget[e.target]) {
+      model.errors.push(label + ' is defined more than once. A row can hold only one subtotal or total.')
+      continue
+    }
+    seenTarget[e.target] = true
+
+    var seenSource = {}
+    for (var k = 0; k < e.sources.length; k++) {
+      if (e.sources[k] === e.target) {
+        model.errors.push(label + ' includes itself in the rows it sums.')
+        ok = false
+      }
+      // A row listed twice would be counted twice. Never intentional in a
+      // subtotal, and silently doubling a line item is exactly the kind of
+      // wrong-but-plausible total this parser exists to prevent.
+      if (seenSource[e.sources[k]]) {
+        model.errors.push(label + ' lists row ' + (e.sources[k] + 1) +
+          ' more than once, which would count it twice.')
+        ok = false
+      }
+      seenSource[e.sources[k]] = true
+      for (var n = j + 1; n < entries.length; n++) {
+        if (entries[n].target === e.sources[k]) {
+          model.errors.push(label + ' sums row ' + (e.sources[k] + 1) +
+            ', which is itself a subtotal defined later. Declare inner subtotals before the rows that use them.')
+          ok = false
+        }
+      }
+    }
+
+    if (ok) {
+      model.groups.push(e)
+      model.targets[e.target] = e
+    }
+  }
+
+  return model
+}
+
+/** True when this row holds a subtotal or the grid total. */
+function isSubtotalRow(params, rowIndex) {
+  if (!params.subtotalConfig || isNaN(rowIndex) || rowIndex < 0) return false
+  return !!params.subtotalConfig.targets[rowIndex]
+}
+
+/** True when this row holds the grid total specifically. */
+function isGridTotalRow(params, rowIndex) {
+  if (!params.subtotalConfig || isNaN(rowIndex) || rowIndex < 0) return false
+  var g = params.subtotalConfig.targets[rowIndex]
+  return !!(g && g.isTotal)
+}
+
+/**
+ * Per-cell validation options. A subtotal is larger than the items it sums
+ * by construction, so a max_value sized for a line item would reject it.
+ * min_value still applies: if every component is above a floor, so is
+ * their sum, and an overridden subtotal should respect it too.
+ */
+function validationOptionsFor(params, input) {
+  if (!input || !params.subtotalConfig || !params.subtotalConfig.configured) return null
+  var row = parseInt(input.getAttribute('data-row'), 10)
+  return isSubtotalRow(params, row) ? { skipMax: true } : null
 }
 
 function normalizePinnedHeaders(value) {
@@ -309,6 +515,7 @@ function shouldUseEnhancedMode() {
   var enhancedParams = [
     'show_historical', 'historical_data', 'historical_display', 'historical_label',
     'total', 'format_numbers', 'min_value', 'max_value', 'allow_decimals', 'validation_strict',
+    'subtotals', 'grid_total', // Subtotal groups imply the enhanced matrix format
     'col_labels', 'row_labels' // New comma-separated format
   ]
 
@@ -503,7 +710,7 @@ function debounce(func, wait) {
   }
 }
 
-function validateNumericInput(value, params, useSoftMessages) {
+function validateNumericInput(value, params, useSoftMessages, opts) {
   useSoftMessages = useSoftMessages || false
   if (!value || value === '') return { valid: true, message: '' }
 
@@ -545,7 +752,9 @@ function validateNumericInput(value, params, useSoftMessages) {
     }
   }
 
-  if (params.maxValue !== null && num > params.maxValue) {
+  // opts.skipMax is set for subtotal/total rows: a sum exceeds the ceiling
+  // meant for the items it sums by construction. min_value still applies.
+  if (!(opts && opts.skipMax) && params.maxValue !== null && num > params.maxValue) {
     var message = useSoftMessages ? params.constraintMessageMaxSoft : params.constraintMessageMax
     var formattedMax = params.formatNumbers ? formatNumber(params.maxValue, true) : params.maxValue
     return {
@@ -567,7 +776,7 @@ function validateAllInputs(params, useSoftMessages) {
   for (var i = 0; i < inputs.length; i++) {
     var input = inputs[i]
     if (input.value) {
-      var validation = validateNumericInput(input.value, params, useSoftMessages)
+      var validation = validateNumericInput(input.value, params, useSoftMessages, validationOptionsFor(params, input))
       if (!validation.valid) {
         allValid = false
         invalidCount++
@@ -965,8 +1174,50 @@ function buildColgroup(params, effectiveCols, sizing) {
   return colgroup
 }
 
+/**
+ * Replace the grid with a visible configuration error. Subtotal misconfiguration
+ * fails loudly rather than falling back to a plain grid: a grid that renders
+ * normally but silently sums nothing is worse than one that refuses to render.
+ * The answer is cleared so the form cannot be submitted against a broken grid.
+ */
+function renderConfigError(messages) {
+  var container = document.getElementById('table-wrapper') || document.getElementById('table-holder')
+  if (!container) return
+
+  var box = document.createElement('div')
+  box.className = 'config-error'
+
+  var heading = document.createElement('strong')
+  heading.className = 'config-error-title'
+  heading.textContent = 'Table grid configuration error'
+  box.appendChild(heading)
+
+  var list = document.createElement('ul')
+  for (var i = 0; i < messages.length; i++) {
+    var li = document.createElement('li')
+    li.textContent = messages[i]
+    list.appendChild(li)
+  }
+  box.appendChild(list)
+
+  container.innerHTML = ''
+  container.appendChild(box)
+
+  try {
+    setAnswer('')
+  } catch (e) {
+    debugLog('Could not clear answer on config error:', e)
+  }
+}
+
 function generateTable(params) {
   debugLog('=== GENERATE TABLE (ENHANCED MODE) ===')
+
+  if (params.subtotalConfig && params.subtotalConfig.errors.length) {
+    debugLog('Subtotal configuration errors:', params.subtotalConfig.errors)
+    renderConfigError(params.subtotalConfig.errors)
+    return
+  }
 
   validateHistoricalDataShape(params)
   debugLog('Params: rows=' + params.rows + ', cols=' + params.cols)
@@ -1081,6 +1332,13 @@ function generateTableBody(params) {
   for (var rowIndex = 0; rowIndex < params.rows; rowIndex++) {
     var row = document.createElement('tr')
     row.className = 'data-row'
+
+    // Subtotal and grid-total rows are ordinary data rows that auto-fill.
+    // Keeping them in the input matrix means serialization, loading,
+    // validation and keyboard navigation need no special cases.
+    if (isSubtotalRow(params, rowIndex)) {
+      row.className += isGridTotalRow(params, rowIndex) ? ' grid-total-row' : ' subtotal-row'
+    }
 
     // Row label cell. Rendered as <th scope="row"> (not <td>) for two
     // reasons: it matches what legacy mode now does, and sticky on <th>
@@ -1226,6 +1484,12 @@ function createCellContent(params, rowIndex, colIndex) {
   var colLabel = params.colLabels[colIndex] || 'Column ' + (colIndex + 1)
   input.setAttribute('aria-label', 'Current value for ' + rowLabel + ' ' + colLabel)
 
+  // Mark subtotal/total inputs so override tracking and the max_value
+  // exemption can find them without re-deriving group membership.
+  if (isSubtotalRow(params, rowIndex)) {
+    input.setAttribute('data-subtotal', isGridTotalRow(params, rowIndex) ? 'total' : 'sub')
+  }
+
   // Plugin required field handling
   if (params.required >= 1) {
     input.required = true
@@ -1258,7 +1522,166 @@ function createCellContent(params, rowIndex, colIndex) {
     }
   }
 
+  // Reference-sum caption for subtotal/total cells. Empty and hidden until
+  // the respondent overrides the cell and their figure disagrees with the
+  // calculated one — while the two agree, the input already shows the
+  // calculated value and a caption would just repeat it.
+  if (isSubtotalRow(params, rowIndex)) {
+    var calcSpan = document.createElement('span')
+    calcSpan.className = 'subtotal-calc'
+    calcSpan.setAttribute('data-calc-row', rowIndex)
+    calcSpan.setAttribute('data-calc-col', colIndex)
+    calcSpan.setAttribute('role', 'note')
+    calcSpan.style.display = 'none'
+    container.appendChild(calcSpan)
+  }
+
   return container
+}
+
+// ====================
+// SUBTOTAL CALCULATION & OVERRIDE
+// ====================
+
+/** Sum a group's source rows for one column. Returns null if no source holds a number. */
+function calculateGroupSum(group, colIndex) {
+  var sum = 0
+  var hasValue = false
+  for (var s = 0; s < group.sources.length; s++) {
+    var src = document.querySelector('input[data-row="' + group.sources[s] + '"][data-col="' + colIndex + '"]')
+    if (!src || !src.value) continue
+    var n = parseFloat(unformatNumber(src.value))
+    if (!isNaN(n)) {
+      sum += n
+      hasValue = true
+    }
+  }
+  return hasValue ? sum : null
+}
+
+function setCellVariance(input, on) {
+  var cell = input.closest ? input.closest('td') : null
+  if (!cell) return
+  if (on) {
+    cell.classList.add('subtotal-variance')
+  } else {
+    cell.classList.remove('subtotal-variance')
+  }
+}
+
+/** Hand an overridden cell back to automatic calculation. */
+function restoreCalculated(input) {
+  input.removeAttribute('data-manual')
+  var params = getTableParameters()
+  updateSubtotals(params)
+  updateTotals(params)
+  updateAnswer()
+}
+
+/**
+ * Write one subtotal cell.
+ *
+ * Not overridden: the cell tracks the calculated sum. An empty group writes
+ * an EMPTY cell, never 0 — a 0 here would make an untouched grid look
+ * answered, defeating both required=1 and SurveyCTO's native required check.
+ *
+ * Overridden: the respondent's number stands permanently. The calculated sum
+ * moves to the caption for reference, and a difference is flagged visually.
+ * It is never a blocker; a genuine difference is the whole point of the feature.
+ */
+function applySubtotalCell(params, group, colIndex, calcValue) {
+  var input = document.querySelector('input[data-row="' + group.target + '"][data-col="' + colIndex + '"]')
+  if (!input) return
+  var caption = document.querySelector('.subtotal-calc[data-calc-row="' + group.target + '"][data-calc-col="' + colIndex + '"]')
+
+  if (input.getAttribute('data-manual') !== 'true') {
+    var next = calcValue === null
+      ? ''
+      : (params.formatNumbers ? formatNumber(calcValue, true) : String(calcValue))
+    if (input.value !== next) input.value = next
+    if (caption) {
+      caption.textContent = ''
+      caption.style.display = 'none'
+    }
+    setCellVariance(input, false)
+    return
+  }
+
+  var entered = parseFloat(unformatNumber(input.value))
+  var differs = calcValue !== null && !isNaN(entered) && Math.abs(entered - calcValue) > 1e-9
+
+  if (caption) {
+    caption.textContent = ''
+    if (calcValue === null || !differs) {
+      caption.style.display = 'none'
+    } else {
+      var shown = params.formatNumbers ? formatNumber(calcValue, true) : String(calcValue)
+      var label = document.createElement('span')
+      label.className = 'subtotal-calc-value'
+      label.textContent = (params.subtotalReferenceLabel || 'Calculated') + ': ' + shown
+      caption.appendChild(label)
+
+      var restore = document.createElement('button')
+      restore.type = 'button'
+      restore.className = 'subtotal-restore'
+      restore.textContent = 'use'
+      restore.setAttribute('aria-label', 'Replace with the calculated value ' + shown)
+      restore.onclick = function () { restoreCalculated(input) }
+      caption.appendChild(restore)
+
+      caption.style.display = ''
+    }
+  }
+
+  setCellVariance(input, differs)
+}
+
+/**
+ * Recompute every subtotal and the grid total.
+ *
+ * Groups are evaluated in declaration order, which parseSubtotalConfig
+ * guarantees is dependency order, so the grid total sees freshly-written
+ * subtotals (including overridden ones) in the same pass.
+ */
+function updateSubtotals(params) {
+  var cfg = params.subtotalConfig
+  if (!cfg || !cfg.configured || !cfg.groups.length) return
+
+  for (var g = 0; g < cfg.groups.length; g++) {
+    var group = cfg.groups[g]
+    for (var col = 0; col < params.cols; col++) {
+      applySubtotalCell(params, group, col, calculateGroupSum(group, col))
+    }
+  }
+}
+
+/**
+ * Rebuild override state after loading a saved answer.
+ *
+ * Override flags are not stored (they would need a metadata channel this
+ * plug-in deliberately removed in 2.0.30). They are derived instead: a saved
+ * subtotal that disagrees with the sum of its saved components was overridden.
+ * Without this, returning to a completed field would silently overwrite the
+ * respondent's own figures with the calculated ones.
+ */
+function reconcileSubtotalOverrides(params) {
+  var cfg = params.subtotalConfig
+  if (!cfg || !cfg.configured) return
+
+  for (var g = 0; g < cfg.groups.length; g++) {
+    var group = cfg.groups[g]
+    for (var col = 0; col < params.cols; col++) {
+      var input = document.querySelector('input[data-row="' + group.target + '"][data-col="' + col + '"]')
+      if (!input || !input.value) continue
+      var stored = parseFloat(unformatNumber(input.value))
+      if (isNaN(stored)) continue
+      var calc = calculateGroupSum(group, col)
+      if (calc === null || Math.abs(stored - calc) > 1e-9) {
+        input.setAttribute('data-manual', 'true')
+        debugLog('Restored override on subtotal row ' + (group.target + 1) + ', col ' + (col + 1))
+      }
+    }
+  }
 }
 
 function getHistoricalValue(historicalData, rowIndex, colIndex) {
@@ -1288,17 +1711,19 @@ function setupCellEventListeners() {
 
   // Create debounced validation functions for both soft and hard validation
   var debouncedSoftValidation = debounce(function (input, params) {
-    var validation = validateNumericInput(input.value, params, true) // Use soft messages
+    var validation = validateNumericInput(input.value, params, true, validationOptionsFor(params, input)) // Use soft messages
     showValidationMessage(input, validation.message, validation.valid, true)
   }, 300)
 
   var debouncedHardValidation = debounce(function (input, params) {
-    var validation = validateNumericInput(input.value, params, false) // Use hard messages
+    var validation = validateNumericInput(input.value, params, false, validationOptionsFor(params, input)) // Use hard messages
     showValidationMessage(input, validation.message, validation.valid, false)
   }, 300)
 
-  // Create debounced update function
+  // Create debounced update function. Subtotals recompute BEFORE the answer
+  // is serialized, so the saved matrix always carries current subtotal values.
   var debouncedUpdate = debounce(function () {
+    updateSubtotals(params)
     updateAnswer()
     updateTotals(params)
   }, 150) // 150ms delay for updates
@@ -1460,9 +1885,10 @@ function setupCellEventListeners() {
 
         // Use the same validation mode as during typing (respect validationStrict setting)
         var useSoftValidation = !params.validationStrict
-        var validation = validateNumericInput(this.value, params, useSoftValidation)
+        var validation = validateNumericInput(this.value, params, useSoftValidation, validationOptionsFor(params, this))
         showValidationMessage(this, validation.message, validation.valid, useSoftValidation)
 
+        updateSubtotals(params)
         updateTotals(params)
       })
 
@@ -1584,6 +2010,19 @@ function setupCellEventListeners() {
             this.dispatchEvent(new Event('input', { bubbles: true }))
             return
           }
+        }
+      })
+    }
+
+    // Override tracking for subtotal/total cells. Assigning .value in JS does
+    // not fire `input`, so anything reaching this handler is the respondent
+    // typing — which is exactly when the cell stops auto-filling.
+    if (input.getAttribute('data-subtotal')) {
+      input.addEventListener('input', function () {
+        if (this.getAttribute('data-loading') === 'true') return
+        if (this.getAttribute('data-manual') !== 'true') {
+          this.setAttribute('data-manual', 'true')
+          debugLog('Subtotal cell overridden at row ' + this.getAttribute('data-row'))
         }
       })
     }
@@ -1893,8 +2332,12 @@ function loadExistingData(params) {
       }
     }
 
-    // Update totals after loading data
+    // Update totals after loading data. Override state is rebuilt from the
+    // loaded values first, otherwise updateSubtotals would overwrite the
+    // respondent's own figures with the calculated ones.
     setTimeout(function () {
+      reconcileSubtotalOverrides(params)
+      updateSubtotals(params)
       updateTotals(params)
     }, 100)
 
@@ -1950,7 +2393,10 @@ function restoreValidationState(params) {
   for (var i = 0; i < inputs.length; i++) {
     var input = inputs[i]
     if (input.value) {
-      var validation = validateNumericInput(input.value, params, useSoftValidation)
+      // Same max_value exemption as live validation. Without it, a valid
+      // calculated subtotal would show a spurious maximum warning after
+      // navigating back to the field or resuming a saved form.
+      var validation = validateNumericInput(input.value, params, useSoftValidation, validationOptionsFor(params, input))
       showValidationMessage(input, validation.message, validation.valid, useSoftValidation)
     }
   }
@@ -2188,8 +2634,28 @@ function clearAnswer() {
   var enhancedInputs = document.querySelectorAll('.cell-input')
   for (var i = 0; i < enhancedInputs.length; i++) {
     enhancedInputs[i].value = ''
+    // Drop override state with the value. Leaving data-manual set would keep
+    // a previously overridden subtotal frozen after the host clears the
+    // field, so it would never auto-fill again on re-entry.
+    enhancedInputs[i].removeAttribute('data-manual')
+    enhancedInputs[i].removeAttribute('data-loaded-value')
+    var clearedCell = enhancedInputs[i].closest ? enhancedInputs[i].closest('td') : null
+    if (clearedCell) clearedCell.classList.remove('subtotal-variance')
     // Clear any validation messages
     showValidationMessage(enhancedInputs[i], '', true)
+  }
+
+  // Clear the calculated-reference captions on subtotal/total cells
+  var captions = document.querySelectorAll('.subtotal-calc')
+  for (var c = 0; c < captions.length; c++) {
+    captions[c].textContent = ''
+    captions[c].style.display = 'none'
+  }
+
+  // Reset the read-only total cells rendered by total='row'/'column'
+  var totalCells = document.querySelectorAll('.total-cell')
+  for (var t = 0; t < totalCells.length; t++) {
+    totalCells[t].textContent = '0'
   }
 
   // Clear legacy mode inputs
@@ -2408,6 +2874,9 @@ function updateColumnTotals(params) {
     var hasValues = false
 
     for (var rowIndex = 0; rowIndex < params.rows; rowIndex++) {
+      // Subtotal and grid-total rows are real rows in the matrix. Including
+      // them here would count their components twice.
+      if (isSubtotalRow(params, rowIndex)) continue
       var input = document.querySelector('input[data-row="' + rowIndex + '"][data-col="' + colIndex + '"]')
       if (input && input.value) {
         var value = parseFloat(unformatNumber(input.value))
@@ -2433,6 +2902,7 @@ function updateColumnTotals(params) {
       var hasHistValues = false
 
       for (var rowIndex = 0; rowIndex < params.rows; rowIndex++) {
+        if (isSubtotalRow(params, rowIndex)) continue
         var histValue = getHistoricalValue(params.historicalData, rowIndex, colIndex)
         if (histValue !== null && histValue !== undefined) {
           var value = parseFloat(unformatNumber(histValue))

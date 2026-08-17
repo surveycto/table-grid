@@ -67,6 +67,8 @@ item-at(',', item-at('|', ${field}, R), C)         <-- single cell at row R, col
 
 > **Breaking change vs upstream `surveycto/table-grid`.** Upstream uses the flat `|` format documented in the previous section regardless of parameters. This fork uses the enhanced row-oriented format whenever any enhanced parameter is set. If you are migrating an existing form from upstream and adding any enhanced parameter, your XPath calculations on the answer field will need to be updated.
 
+**Subtotal and grid-total rows are stored as ordinary rows** in this matrix, in the order they appear on screen — see [Subtotals and editable totals](#subtotals-and-editable-totals).
+
 **Note**: Because rows are separated by pipes <code> (|)</code> and cells are separated by commas <code> (,)</code>, do not put pipes or commas in any of the actual cell values. Use whole numbers, decimals with `.` (the plug-in normalizes commas to dots when `allow_decimals=true`), or short text that doesn't contain those delimiters.
 
 ## How to use
@@ -152,11 +154,14 @@ The following parameters enable advanced features:
 | `historical_data` | Historical data in the same format as the main data: `"A1,B1\|A2,B2"` for a 2x2 table. |
 | `historical_display` | How to display historical data: `bottom` (default, below input), `top` (above input), `columns`, or `toggle`. |
 | `historical_label` | Label for historical data. Default is `"Last Year"`. |
-| `total` | Calculate totals: `row` for row totals, `column` for column totals. |
+| `total` | Read-only totals. `row` adds a totals **column** on the right (each row's across-columns sum); `column` adds a totals **row** at the bottom (each column's down-rows sum). Note the names describe what is summed, not where the result appears. |
 | `total_label` | Label for the totals header/row. Default is `"Total"`. Set to e.g. `"Sum"` when respondents enter their own totals. |
+| `subtotals` | Subtotal groups, separated by `\|`. Each group is `<subtotal row>:<rows it sums>`, e.g. `"3:1-2\|6:4-5"`. Sources accept ranges (`1-2`), lists (`3,6,7`), or a mix. Row numbers start at **1**. See [Subtotals and editable totals](#subtotals-and-editable-totals). |
+| `grid_total` | The grid total row, same `<row>:<rows it sums>` syntax, e.g. `"12:3,6,7,10,11"`. Sums subtotals and any ungrouped rows you list — never the raw line items twice. |
+| `subtotal_reference_label` | Prefix on the calculated-sum caption shown under an overridden subtotal. Default is `"Calculated"`. |
 | `format_numbers` | Set to `true` to format numbers with comma separators (real-time formatting). Default is `false`. |
-| `min_value` | Minimum allowed value for numeric inputs. |
-| `max_value` | Maximum allowed value for numeric inputs. |
+| `min_value` | Minimum allowed value for numeric inputs. Applies **globally** to every cell — per-cell, per-row and per-column limits are not supported. Set `min_value=0` (with `validation_strict='true'` and SurveyCTO's native `required=yes`) to block negative numbers. |
+| `max_value` | Maximum allowed value for numeric inputs. Global, as above. Does not apply to subtotal or grid-total rows. |
 | `allow_decimals` | Set to `false` to restrict inputs to whole numbers only. Default is `true`. |
 | `validation_strict` | Set to `true` to prevent form progression when validation fails (hard validation). **Important:** Must be used with SurveyCTO's native `required` set to `yes` for progression blocking to work. Set to `false` for soft validation with warnings. Default is `false`. |
 | `frame_adjust` | Pixel offset added to the auto-computed table height when the column header is pinned. Use a positive number to make the table area taller, negative to shrink it. Only useful when fine-tuning for unusual form layouts (long labels, large hint text). Default is `0`. |
@@ -186,6 +191,77 @@ Customize validation messages for better user experience:
 - **`top`**: Historical values appear above the input field in each cell *(formerly `inline` — that name still works as an alias for backward compatibility)*
 - **`columns`**: Historical data appears in separate columns next to current data columns
 - **`toggle`**: Users can toggle between viewing historical data and current inputs
+
+### Subtotals and editable totals
+
+Rows can be grouped into sections that roll up into a subtotal row, and the subtotals can roll up into a grid total. Both the subtotal rows and the total row are **editable**: they start as the calculated sum and keep tracking it, but a respondent who knows the real figure — because their institution cannot break out every line item — can type over it, and their number then wins permanently.
+
+#### Configuring groups
+
+`subtotals` declares one group per `|`-separated entry, as `<subtotal row>:<rows it sums>`. `grid_total` declares the total row the same way. **Row numbers start at 1** and refer to positions in `row_labels`.
+
+```
+custom-table-grid(
+  rows=12,
+  cols=2,
+  row_labels='Medicare FFS,Medicare Advantage,Medicare subtotal,Medicaid FFS,Medicaid managed care,Medicaid subtotal,Other government,Commercial FFS,Commercial managed care,Commercial subtotal,Self-pay,TOTAL',
+  col_labels='Charges,Payments',
+  subtotals='3:1-2|6:4-5|10:8-9',
+  grid_total='12:3,6,7,10,11',
+  format_numbers='true'
+)
+```
+
+Subtotal labels come from `row_labels` — nothing is auto-generated, so you control the wording.
+
+#### Rows that belong to no section
+
+Rows 7 (`Other government`) and 11 (`Self-pay`) above are **one-off line items**: they belong to no subtotal but must still count toward the grid total. They need no configuration at all — list them among `grid_total`'s sources and they are done. They render as ordinary rows, with no subtotal styling and no duplicated row.
+
+This is also why the grid total sums *subtotals and one-offs* rather than every line item: adding the line items again would double-count everything that already rolls into a subtotal, and it would discard subtotal overrides.
+
+#### Override behaviour
+
+- A subtotal or total cell auto-fills with its calculated sum and follows later edits to its components.
+- The moment the respondent types in it, the cell is theirs. Component edits update the *reference* figure but never overwrite their value.
+- When the two disagree, the calculated sum appears beneath the cell (`Calculated: 1,650,000`) with the cell highlighted, plus a small **use** button that hands the cell back to automatic. Customise the caption prefix with `subtotal_reference_label`.
+- A mismatch is **always a warning, never a blocker**. Respondents can proceed.
+- If a section has no values at all, its subtotal stays **empty**, not `0` — so an untouched grid is still correctly treated as unanswered.
+
+#### Restrictions
+
+- Subtotals are **row-based only**. Because they sum down rows, they cannot be combined with `total='row'` (which adds a totals column on the right). That combination is a configuration error and the plug-in refuses to render, showing the reason.
+- Any malformed `subtotals` / `grid_total` value — an out-of-range row, a duplicated subtotal row, a group that sums itself, or a subtotal used before it is defined — also fails loudly at load rather than rendering a grid that silently sums nothing.
+- `max_value` does **not** apply to subtotal or total rows: a sum exceeds the ceiling meant for the items it sums by construction. `min_value` and `allow_decimals` still apply.
+
+#### What gets stored
+
+Subtotal and total rows are **real rows in the answer matrix**, serialized in the order they appear on screen. The example above stores 12 rows:
+
+```
+item-at('|', ${payer_grid}, 2)                        <-- Medicare subtotal row, "1900000,1200000"
+item-at('|', ${payer_grid}, 11)                       <-- TOTAL row
+item-at(',', item-at('|', ${payer_grid}, 2), 0)       <-- Medicare subtotal, Charges column
+```
+
+> **Indices are 0-based in `item-at()` but 1-based in `subtotals`/`grid_total`.** The parameters are written against your `row_labels` list, which authors count from 1; `item-at()` follows SurveyCTO's own convention. Row 3 in `subtotals` is index 2 in `item-at()`.
+
+> **Adding subtotal rows to an existing grid shifts every later `item-at()` index** and widens the exported data. Plan that change deliberately if the form is already collecting.
+
+The running calculated reference sums are **not** stored, and neither is an "was overridden" flag — the plug-in has no metadata channel (see the note in `updateAnswer`). Both are derivable form-side, which is the recommended pattern anyway.
+
+#### Comparing supplied against calculated
+
+To flag a respondent-supplied subtotal that disagrees with its components, recompute the sum in a `calculate` and compare:
+
+| type | name | calculation |
+| --- | --- | --- |
+| `calculate` | `medicare_ffs` | `number(item-at(',', item-at('\|', ${payer_grid}, 0), 0))` |
+| `calculate` | `medicare_adv` | `number(item-at(',', item-at('\|', ${payer_grid}, 1), 0))` |
+| `calculate` | `medicare_sub` | `number(item-at(',', item-at('\|', ${payer_grid}, 2), 0))` |
+| `calculate` | `medicare_diff` | `${medicare_sub} - (${medicare_ffs} + ${medicare_adv})` |
+
+`medicare_diff` is non-zero exactly when the respondent overrode that subtotal, which doubles as the override flag and as a data-quality check you can drive a `constraint` or a review field from.
 
 #### Validation Modes
 
@@ -249,10 +325,10 @@ custom-table-grid(
   row_labels="Revenue, Expenses, Profit",
   min_value=0,
   max_value=1000000,
-  format_numbers=true,
-  validation_strict=false,
-  constraint_message_min="Please enter at least ${min}",
-  constraint_message_min_soft="Consider values above ${min}"
+  format_numbers='true',
+  validation_strict='false',
+  constraint_message_min="Please enter at least {min}",
+  constraint_message_min_soft="Consider values above {min}"
 )
 ```
 
@@ -263,13 +339,13 @@ custom-table-grid(
   cols=4, 
   col_labels="Q1, Q2, Q3, Q4",
   row_labels="Revenue, Expenses, Profit",
-  show_historical=true,
+  show_historical='true',
   historical_data="100,200,150,300|50,75,60,120|50,125,90,180",
-  historical_display=top,
-  format_numbers=true,
-  total=row,
+  historical_display='top',
+  format_numbers='true',
+  total='row',
   min_value=0,
-  allow_decimals=false,
+  allow_decimals='false',
   required=1
 )
 ```
@@ -299,7 +375,7 @@ custom-table-grid(
   rows=1,
   cols=4,
   col_labels="Q1, Q2, Q3, Q4",
-  show_historical=true,
+  show_historical='true',
   historical_data=${hist_matrix}
 )
 ```

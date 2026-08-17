@@ -809,6 +809,112 @@ th[scope="row"].row-label {
 }
 
 /* ====================
+   SUBTOTAL & GRID TOTAL ROWS
+   ==================== */
+
+/* Subtotal rows are ordinary input rows that auto-fill, so they keep the
+   normal cell affordance and are set apart by row tint alone. */
+.data-row.subtotal-row > td,
+.data-row.subtotal-row > th {
+    background-color: #eef4f8;
+}
+
+.data-row.subtotal-row > th.row-label {
+    font-weight: 600;
+    color: var(--primary-blue-dark);
+}
+
+.data-row.grid-total-row > td,
+.data-row.grid-total-row > th {
+    background-color: #e4e9ee;
+}
+
+.data-row.grid-total-row {
+    border-top: 3px solid var(--primary-blue);
+}
+
+.data-row.grid-total-row > th.row-label {
+    font-weight: 700;
+    color: var(--primary-blue-dark);
+}
+
+/* Reference sum shown under an overridden cell. Always visible (no hover),
+   because touch devices have no hover state. */
+.subtotal-calc {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--font-size-small);
+    font-weight: 500;
+    color: #8a4b18;
+    white-space: nowrap;
+    font-family: var(--font-family-primary);
+    line-height: 1.2;
+}
+
+.subtotal-restore {
+    font: inherit;
+    font-size: calc(var(--font-size-small) * 0.95);
+    color: #8a4b18;
+    background: #fbeee2;
+    border: 1px solid #d9a271;
+    border-radius: 10px;
+    padding: 0 6px;
+    cursor: pointer;
+    line-height: 1.4;
+}
+
+.subtotal-restore:hover,
+.subtotal-restore:focus-visible {
+    background: #f5ddc6;
+}
+
+.subtotal-restore:focus-visible {
+    outline: 2px solid var(--primary-blue);
+    outline-offset: 1px;
+}
+
+/* Override differs from the calculated sum: a warning, never a blocker. */
+td.subtotal-variance {
+    background-color: #fbeee2 !important;
+}
+
+td.subtotal-variance .cell-input {
+    border-color: #c9772f;
+    color: #8a4b18;
+    font-weight: 600;
+}
+
+/* ====================
+   CONFIGURATION ERROR
+   ==================== */
+
+.config-error {
+    margin: 8px 0;
+    padding: 12px 14px;
+    border: 1px solid #c0392b;
+    border-radius: 6px;
+    background-color: #fdf3f2;
+    color: #7d241a;
+    font-family: var(--font-family-primary);
+    font-size: var(--font-size-small);
+}
+
+.config-error-title {
+    display: block;
+    margin-bottom: 6px;
+}
+
+.config-error ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.config-error li {
+    margin-bottom: 4px;
+}
+
+/* ====================
    NUMBER FORMATTING STYLES
    ==================== */
 
