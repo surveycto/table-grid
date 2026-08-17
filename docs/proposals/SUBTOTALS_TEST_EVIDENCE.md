@@ -1,7 +1,7 @@
 # Subtotals & editable totals — test evidence
 
 **Spec:** v1, 17 Aug 2026, §9 acceptance criteria
-**Branch:** `feature/subtotals` · **Plug-in version:** 2.1.0
+**Branch:** `feature/subtotals` · **Plug-in version:** 2.1.1
 **Runner:** [`extras/tests/subtotals-acceptance.py`](../../extras/tests/subtotals-acceptance.py)
 
 The runner loads the real `source/template.html`, `source/style.css` and
@@ -108,6 +108,37 @@ reading. Any future refactor of the render path should keep it.
    device.
 5. **Hard-validation blocking.** See the correction below.
 
+### `use` chip focus race — found on device and in web forms, fixed in 2.1.1
+
+The device/web run found the one real defect: the `use` restore chip did nothing on the
+first click while the overridden cell still had focus, on **both** Android Collect and
+desktop web forms. Root cause was in `applySubtotalCell`, not either host: the input's
+blur handler calls `updateSubtotals`, which rebuilt the caption DOM unconditionally and
+so detached the button between `mousedown` and `mouseup`. No `click` event was ever
+dispatched. The second click worked because the cell was already blurred.
+
+Fixed two ways, as recommended:
+
+1. The caption now **rebuilds only when the displayed value actually changed**
+   (`data-shown` diff), so a recompute no longer churns the DOM or replaces the button.
+2. The button **preventDefaults `mousedown`**, so pressing it never pulls focus out of
+   the cell and the blur recompute is not triggered at all.
+
+The chip's touch target was also enlarged: padding and `min-height` raise the visual
+control, and a `::before` overlay extends the hit area to roughly 44px tall without
+changing layout — it previously measured 33 × 17 CSS px, under both the Apple and
+Material minimums, directly beneath a text input.
+
+**Why the original suite missed it.** Scenario 2 exercised restore via `btn.click()`,
+which invokes the handler directly and works even on a detached node. Scenario 14 now
+models real pointer ordering and asserts on **node identity** across the blur recompute.
+Verified to fail on the pre-fix code (3 assertions) and pass on the fix.
+
+One further trap worth recording: scenario 14 only reproduces when `format_numbers` is
+set. That routes input handling down the *enhanced* branch, whose blur handler recomputes;
+the standard branch's blur handler does not. A first version of the regression test used
+the plain AHA config and passed against the broken code.
+
 ### Correction to the device report's reading of check 16
 
 The device report infers from check 16 that "validation is advisory, not blocking, which
@@ -145,7 +176,7 @@ prove the host sizes correctly.
 
 ## Full run output
 
-Re-run on the host at commit `5544f5d`:
+Re-run on the host at 2.1.1:
 
     ========================================================================
     1. Subtotal rows render, initialise from components, live-update
@@ -302,4 +333,16 @@ Re-run on the host at commit `5544f5d`:
     PASS  line item over max IS still flagged on restore
 
     ========================================================================
-    TOTAL: 76 passed, 0 failed
+    14. Restore chip survives blur recompute (pointer race)
+    ========================================================================
+    PASS  chip is present after override
+    PASS  chip preventDefaults mousedown so the cell keeps focus
+    PASS  chip node survived the blur recompute
+    PASS  chip in the DOM is the same node that got mousedown
+    PASS  click on the surviving node reverts the override
+    PASS  override flag cleared
+    PASS  variance styling cleared
+    PASS  caption still re-renders when the calculated value changes
+
+    ========================================================================
+    TOTAL: 84 passed, 0 failed

@@ -1611,23 +1611,41 @@ function applySubtotalCell(params, group, colIndex, calcValue) {
   var differs = calcValue !== null && !isNaN(entered) && Math.abs(entered - calcValue) > 1e-9
 
   if (caption) {
-    caption.textContent = ''
     if (calcValue === null || !differs) {
+      caption.textContent = ''
+      caption.removeAttribute('data-shown')
       caption.style.display = 'none'
     } else {
       var shown = params.formatNumbers ? formatNumber(calcValue, true) : String(calcValue)
-      var label = document.createElement('span')
-      label.className = 'subtotal-calc-value'
-      label.textContent = (params.subtotalReferenceLabel || 'Calculated') + ': ' + shown
-      caption.appendChild(label)
 
-      var restore = document.createElement('button')
-      restore.type = 'button'
-      restore.className = 'subtotal-restore'
-      restore.textContent = 'use'
-      restore.setAttribute('aria-label', 'Replace with the calculated value ' + shown)
-      restore.onclick = function () { restoreCalculated(input) }
-      caption.appendChild(restore)
+      // Rebuild ONLY when the displayed value actually changed. Recomputing
+      // on every keystroke and on blur used to replace this DOM each time,
+      // which destroyed the restore button between mousedown and mouseup —
+      // so the first real click on it never produced a click event and the
+      // button looked broken. Diffing also avoids needless DOM churn.
+      if (caption.getAttribute('data-shown') !== shown || !caption.firstChild) {
+        caption.textContent = ''
+
+        var label = document.createElement('span')
+        label.className = 'subtotal-calc-value'
+        label.textContent = (params.subtotalReferenceLabel || 'Calculated') + ': ' + shown
+        caption.appendChild(label)
+
+        var restore = document.createElement('button')
+        restore.type = 'button'
+        restore.className = 'subtotal-restore'
+        restore.textContent = 'use'
+        restore.setAttribute('aria-label', 'Replace with the calculated value ' + shown)
+        // Keep focus in the cell so pressing the button doesn't fire the
+        // input's blur handler (which recomputes) mid-click. Belt and braces
+        // with the diffing above: this prevents the re-render from being
+        // triggered at all, the diff makes it harmless if it is.
+        restore.addEventListener('mousedown', function (e) { e.preventDefault() })
+        restore.addEventListener('click', function () { restoreCalculated(input) })
+        caption.appendChild(restore)
+
+        caption.setAttribute('data-shown', shown)
+      }
 
       caption.style.display = ''
     }
@@ -2649,6 +2667,7 @@ function clearAnswer() {
   var captions = document.querySelectorAll('.subtotal-calc')
   for (var c = 0; c < captions.length; c++) {
     captions[c].textContent = ''
+    captions[c].removeAttribute('data-shown')
     captions[c].style.display = 'none'
   }
 

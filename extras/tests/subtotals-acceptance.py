@@ -422,6 +422,46 @@ results.append(run('13. Restored validation exempts subtotals from max_value', r
          !!m0 && m0.textContent.indexOf('at most') >= 0, m0 ? m0.textContent : 'no message');""",
 ], current='600,0|50,0|650,0|,|,|,|,|,|,|,|,|,'))
 
+
+# --- 14. `use` chip survives the blur-triggered recompute ----------------
+# Regression for the focus race found on device and in web forms: the input's
+# blur handler recomputes subtotals, which used to rebuild the caption and
+# detach the restore button between mousedown and mouseup, so the first real
+# click never produced a click event. Asserting only on btn.click() passes
+# either way -- node identity and the mousedown default are what distinguish
+# fixed from broken.
+# format_numbers matters: it routes input handling down the ENHANCED branch,
+# whose blur handler calls updateSubtotals. Without it the standard branch is
+# used, blur never recomputes, and the race cannot reproduce -- which is how
+# the original suite missed this. The AHA demo form sets format_numbers='true'.
+chip = dict(AHA)
+chip['format_numbers'] = 'true'
+results.append(run('14. Restore chip survives blur recompute (pointer race)', chip, [
+    """type(0,0,'100'); type(1,0,'50');""",
+    """type(2,0,'900');""",
+    """window.__btn = document.querySelector('.subtotal-restore');
+       __assert('chip is present after override', !!window.__btn, 'no chip');
+       var md = new MouseEvent('mousedown', {bubbles: true, cancelable: true});
+       var notCancelled = window.__btn.dispatchEvent(md);
+       __assert('chip preventDefaults mousedown so the cell keeps focus',
+         notCancelled === false, 'mousedown default was not prevented');
+       cell(2,0).focus();
+       cell(2,0).blur();""",
+    """__assert('chip node survived the blur recompute',
+         !!window.__btn && window.__btn.isConnected === true, 'button node was replaced/detached');
+       __assert('chip in the DOM is the same node that got mousedown',
+         document.querySelector('.subtotal-restore') === window.__btn, 'DOM holds a different node');
+       window.__btn.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+       window.__btn.click();""",
+    """__assert('click on the surviving node reverts the override',
+         cell(2,0).value === '150', 'got ' + cell(2,0).value);
+       __assert('override flag cleared', cell(2,0).getAttribute('data-manual') !== 'true', 'still manual');
+       __assert('variance styling cleared', !document.querySelector('td.subtotal-variance'), 'variance remains');""",
+    """type(1,0,'70');""",
+    """__assert('caption still re-renders when the calculated value changes',
+         cell(2,0).value === '170', 'got ' + cell(2,0).value);""",
+]))
+
 fails = sum(len(re.findall(r'^FAIL', r, re.M)) for r in results)
 passes = sum(len(re.findall(r'^PASS', r, re.M)) for r in results)
 print('=' * 72)

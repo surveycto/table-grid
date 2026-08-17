@@ -853,15 +853,31 @@ th[scope="row"].row-label {
 }
 
 .subtotal-restore {
+    position: relative;
     font: inherit;
     font-size: calc(var(--font-size-small) * 0.95);
     color: #8a4b18;
     background: #fbeee2;
     border: 1px solid #d9a271;
     border-radius: 10px;
-    padding: 0 6px;
+    padding: 2px 10px;
     cursor: pointer;
     line-height: 1.4;
+    /* Keep the chip visually small but give it a real touch target. */
+    min-height: 24px;
+    touch-action: manipulation;
+}
+
+/* Extend the hit area to ~44px tall without changing layout or visual size,
+   meeting the Apple/Material minimums for a control that sits directly
+   beneath a text input it must not be mistaken for. */
+.subtotal-restore::before {
+    content: "";
+    position: absolute;
+    top: -10px;
+    bottom: -10px;
+    left: -8px;
+    right: -8px;
 }
 
 .subtotal-restore:hover,
