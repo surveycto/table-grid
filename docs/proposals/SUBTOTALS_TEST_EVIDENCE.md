@@ -33,7 +33,7 @@ python3 extras/tests/subtotals-acceptance.py
 | Rejects duplicate source rows that would double-count | Pass | Scenario 11 |
 | `clearAnswer()` resets values, override flags, variance styling and captions | Pass | Scenario 12 |
 | Restored validation honours the subtotal `max_value` exemption | Pass | Scenario 13 |
-| Rendering on Web Forms + one Collect platform | **Partial — see below** | — |
+| Rendering on Web Forms + one Collect platform | Pass (Android) | Device run, 17 Aug — 30/30 |
 
 ## Fixed after code review (17 Aug)
 
@@ -57,21 +57,82 @@ Separately, README examples used unquoted alphabetic parameter values
 (`format_numbers=true`, `total=row`) that the same README warns against, and
 `${min}` instead of the documented `{min}` placeholder. Both corrected.
 
+## Device run — Android Collect, 17 Aug 2026
+
+Deployed to `mitoworks21.surveycto.com` and driven on a **Pixel 10 Pro XL (Android 17,
+SurveyCTO Collect v2.81, real device)**. **30/30 on-device checks passed**, including a
+finalized submission that reached the server.
+
+The strongest evidence in that run reads the plug-in's output back through the form
+engine rather than off the widget. With the Medicare subtotal overridden to 900:
+
+```
+medicare_ffs       = 100    (item-at index 0)
+medicare_adv       = 50     (item-at index 1)
+medicare_sub       = 900    (item-at index 2 — the override)
+medicare_diff      = 750    (drives the relevance-gated note)
+grid_total_charges = 1790   (item-at index 11)
+```
+
+That confirms `setAnswer` writes a correctly structured matrix, `item-at()` parses it,
+and the documented form-side override-detection pattern works end to end. It also
+confirms `format_numbers` is display-only: the screen showed `1,790` while the stored
+value was `1790`.
+
+**Unexpected accessibility finding, worth protecting.** Every cell surfaces in the
+Android accessibility tree as an `android.widget.EditText` inside a `View` labelled
+`Current value for <row label> <column label>` — the `aria-label` set in
+`createCellContent` — with the live value on the `EditText`'s `text` attribute. That is
+a real accessibility win and it made the device run far more rigorous than screenshot
+reading. Any future refactor of the render path should keep it.
+
+### Still blocked or unrun after the device pass
+
+| Gate | Status |
+|---|---|
+| Stored submission values byte-verified on the server | Blocked — role lacks API access (HTTP 412/403) |
+| iOS Collect | Blocked — WebDriverAgent not installed on the iPhone |
+| Web forms, desktop browser | Not run |
+| In-product plug-in console (Form Designer → Test) | Not run |
+
+### Paths the device run did not exercise
+
+1. **Restore-from-saved override state on device.** Whether the override flag, amber
+   styling and `Calculated:` caption rebuild from a *stored* answer rather than from
+   live typing. Covered headlessly by scenarios 6 and 13; not seen on a real device.
+2. **The `use` revert chip was rendered and positioned but never tapped** — the one
+   touch-target risk flagged before the run is still open.
+3. **Per-column subtotal arithmetic in the Payments column.** It was deliberately left
+   empty to prove non-bleed, so column 2 arithmetic is unverified on device.
+4. **Override on the grid-total row itself.** Covered headlessly by scenario 3, not on
+   device.
+5. **Hard-validation blocking.** See the correction below.
+
+### Correction to the device report's reading of check 16
+
+The device report infers from check 16 that "validation is advisory, not blocking, which
+matches the design intent for `validation_strict='true'`". That inference is wrong.
+`validation_strict='true'` **is** meant to block: `updateAnswer` calls `setAnswer('')`
+when strict validation fails, which combined with the field's native `required=yes`
+prevents advancing.
+
+What check 16 actually showed is that an invalid entry is *flagged* while the subtotal
+still displays a figure derived from the numeric part — display behaviour, not answer
+behaviour. Blocking was never exercised, because the bad value was cleared (check 22)
+before the form was advanced. **Attempting to swipe forward with an invalid cell still
+present remains untested**, and it is the check that would confirm the strict path.
+
 ## Not covered by automated tests
 
-**Device testing is outstanding.** Everything above runs in headless Chrome, which
-is a reasonable proxy for Web Forms but is **not** SurveyCTO Collect. The spec asks
-for Web Forms plus at least one Collect platform. Before this ships, it still needs:
+Everything in the suite above runs in headless Chrome, which is a fair proxy for Web
+Forms and nothing else. It exercises none of the Android System WebView or iOS
+WKWebView behaviour where this plug-in has historically had trouble. The Android gap
+is now closed by the device run documented above; iOS, desktop web forms and the
+in-product console remain open.
 
-- SurveyCTO Collect on Android — the platform where this plug-in has historically
-  had trouble (sticky headers, focus, WebView resize).
-- Collect for iOS.
-- The in-product field plug-in console (Form Designer → *Test* → the plug-in console
-  icon), which is the required final validation step for any plug-in change.
-
-The touch-specific concern worth watching: the reference caption and its **use**
-button are rendered inside the cell, and the button is a real tap target on a row
-that also holds an input.
+The iframe-resize scenario stubs `parentIFrame` rather than running against real
+iframeResizer, so it proves the plug-in does not spam `size()` calls; it does not
+prove the host sizes correctly.
 
 ## Also worth a human eye
 
@@ -83,6 +144,8 @@ that also holds an input.
   confirming that is what AHA expects for partially-completed sections.
 
 ## Full run output
+
+Re-run on the host at commit `5544f5d`:
 
     ========================================================================
     1. Subtotal rows render, initialise from components, live-update

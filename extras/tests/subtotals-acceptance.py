@@ -13,8 +13,50 @@ import subprocess
 import sys
 import tempfile
 
-SRC = '/Users/mitoworks/Downloads/GitHub/table-grid-surveycto/source'
-CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+import shutil
+
+
+def _find_source():
+    """Locate source/. Env override first, then the repo this file sits in."""
+    env = os.environ.get('TABLE_GRID_SRC')
+    if env:
+        return env
+    here = os.path.dirname(os.path.abspath(__file__))          # extras/tests
+    repo = os.path.dirname(os.path.dirname(here))               # repo root
+    candidate = os.path.join(repo, 'source')
+    if os.path.isdir(candidate):
+        return candidate
+    return os.path.join(os.getcwd(), 'source')
+
+
+def _find_chrome():
+    """Locate a Chrome/Chromium binary. Env override first, then PATH, then
+    the usual per-platform install locations."""
+    env = os.environ.get('CHROME')
+    if env:
+        return env
+    for name in ('google-chrome', 'google-chrome-stable', 'chromium',
+                 'chromium-browser', 'chrome'):
+        found = shutil.which(name)
+        if found:
+            return found
+    for path in (
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/Applications/Chromium.app/Contents/MacOS/Chromium',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+        r'C:\Program Files\Google\Chrome\Application\chrome.exe',
+    ):
+        if os.path.exists(path):
+            return path
+    sys.exit('No Chrome/Chromium found. Set CHROME=/path/to/chrome and re-run.')
+
+
+SRC = _find_source()
+CHROME = _find_chrome()
+
+if not os.path.isdir(SRC):
+    sys.exit('No source/ directory at %s. Set TABLE_GRID_SRC and re-run.' % SRC)
 
 TEMPLATE = open(os.path.join(SRC, 'template.html'), encoding='utf-8').read()
 STYLE = open(os.path.join(SRC, 'style.css'), encoding='utf-8').read()
