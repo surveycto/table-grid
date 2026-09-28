@@ -207,9 +207,10 @@ function parseLabels(labelString) {
 
   if (!cleanString) return []
 
-  // Support both comma and pipe separators (pipe for legacy compatibility)
-  var delimiter = cleanString.indexOf('|') >= 0 ? '|' : ','
-  return cleanString.split(delimiter).map(function (s) { return s.trim() }).filter(function (s) { return s.length > 0 })
+  // Support both comma and pipe separators (pipe for legacy compatibility).
+  // splitLabelList ignores delimiters inside <...> so formatting tags such as
+  // <span style='color:red; font-family:Arial, sans-serif'> don't split a label.
+  return splitLabelList(cleanString).filter(function (s) { return s.length > 0 })
 }
 
 // Parse a width value in "<N>px" or "<N>%" form. Returns the original
@@ -1298,7 +1299,7 @@ function generateTableHeader(params) {
     if (params.showHistorical && params.historicalDisplay === 'columns') {
       // Historical column
       var histCell = document.createElement('th')
-      histCell.textContent = label + ' (' + params.historicalLabel + ')'
+      renderRichLabel(histCell, label, ' (' + params.historicalLabel + ')')
       histCell.className = 'historical-header'
       histCell.setAttribute('scope', 'col')
       headerRow.appendChild(histCell)
@@ -1306,8 +1307,7 @@ function generateTableHeader(params) {
 
     // Current column
     var currentCell = document.createElement('th')
-    currentCell.textContent = params.historicalDisplay === 'columns' ?
-      label + ' (Current)' : label
+    renderRichLabel(currentCell, label, params.historicalDisplay === 'columns' ? ' (Current)' : '')
     currentCell.className = 'current-header'
     currentCell.setAttribute('scope', 'col')
     headerRow.appendChild(currentCell)
@@ -1345,7 +1345,7 @@ function generateTableBody(params) {
     // is more reliable than sticky on <td> in Android System WebView.
     var labelCell = document.createElement('th')
     var rowLabel = params.rowLabels[rowIndex] || 'Row ' + (rowIndex + 1)
-    labelCell.textContent = unEntity(rowLabel)
+    renderRichLabel(labelCell, rowLabel)
     labelCell.className = 'row-label'
     labelCell.setAttribute('scope', 'row')
     row.appendChild(labelCell)
@@ -1482,7 +1482,7 @@ function createCellContent(params, rowIndex, colIndex) {
   // Accessibility attributes
   var rowLabel = params.rowLabels[rowIndex] || 'Row ' + (rowIndex + 1)
   var colLabel = params.colLabels[colIndex] || 'Column ' + (colIndex + 1)
-  input.setAttribute('aria-label', 'Current value for ' + rowLabel + ' ' + colLabel)
+  input.setAttribute('aria-label', 'Current value for ' + plainLabel(rowLabel) + ' ' + plainLabel(colLabel))
 
   // Mark subtotal/total inputs so override tracking and the max_value
   // exemption can find them without re-deriving group membership.
@@ -2465,23 +2465,11 @@ function generateLegacyTable() {
   var columnHeadersArray = []
 
   if (unifiedParams.rowLabels) {
-    if (unifiedParams.rowLabels.includes('|')) {
-      // Legacy pipe-separated format
-      rowHeadersArray = unifiedParams.rowLabels.split('|')
-    } else {
-      // New comma-separated format
-      rowHeadersArray = unifiedParams.rowLabels.split(',').map(function (s) { return s.trim() })
-    }
+    rowHeadersArray = splitLabelList(unifiedParams.rowLabels)
   }
 
   if (unifiedParams.colLabels) {
-    if (unifiedParams.colLabels.includes('|')) {
-      // Legacy pipe-separated format
-      columnHeadersArray = unifiedParams.colLabels.split('|')
-    } else {
-      // New comma-separated format
-      columnHeadersArray = unifiedParams.colLabels.split(',').map(function (s) { return s.trim() })
-    }
+    columnHeadersArray = splitLabelList(unifiedParams.colLabels)
   }
 
   // Build the table with DOM nodes and textContent. Earlier versions
@@ -2503,7 +2491,7 @@ function generateLegacyTable() {
       rowHeaderTh.setAttribute('dir', 'auto')
       // unEntity decodes &amp;/&lt;/&gt;/&quot;/&#39; before the value goes
       // into textContent, matching how enhanced mode handles row labels.
-      rowHeaderTh.textContent = unEntity(rowHeadersArray[i - 1] || 'Row ' + i)
+      renderRichLabel(rowHeaderTh, rowHeadersArray[i - 1] || 'Row ' + i)
       tr.appendChild(rowHeaderTh)
     } else {
       var cornerTh = document.createElement('th')
@@ -2518,7 +2506,7 @@ function generateLegacyTable() {
         colTh.setAttribute('scope', 'col')
         colTh.className = 'default-hint-text-size sticky'
         colTh.setAttribute('dir', 'auto')
-        colTh.textContent = unEntity(columnHeadersArray[j] || 'Col ' + (j + 1))
+        renderRichLabel(colTh, columnHeadersArray[j] || 'Col ' + (j + 1))
         tr.appendChild(colTh)
       } else {
         var td = document.createElement('td')
@@ -2767,6 +2755,180 @@ function unEntity(str) {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&amp;/g, '&')
+}
+
+// ====================
+// RICH-TEXT LABELS
+// ====================
+//
+// Row and column labels accept a small, safe subset of HTML so form
+// designers can bold, underline, colour or resize individual words:
+//
+//   <b> <strong> <i> <em> <u> <s> <del> <mark> <small> <big> <sub> <sup> <br>
+//   <font color=… face=… size=…>
+//   <span style="color:…; background-color:…; font-weight:…; font-style:…;
+//                font-size:…; font-family:…; text-decoration:…">
+//
+// Everything else is stripped: unknown tags are unwrapped (their text is
+// kept), dangerous containers (<script>, <style>, <iframe>, …) are dropped
+// with their contents, and no event handlers, links or URLs survive. This
+// matters because labels can come from ${field} references, i.e. from
+// respondent- or dataset-driven values.
+
+var RICH_ALLOWED_TAGS = {
+  B: 1, STRONG: 1, I: 1, EM: 1, U: 1, S: 1, DEL: 1, MARK: 1,
+  SMALL: 1, BIG: 1, SUB: 1, SUP: 1, BR: 1, SPAN: 1, FONT: 1
+}
+var RICH_DROP_TAGS = {
+  SCRIPT: 1, STYLE: 1, IFRAME: 1, OBJECT: 1, EMBED: 1, TEMPLATE: 1,
+  NOSCRIPT: 1, TEXTAREA: 1, SELECT: 1, SVG: 1, MATH: 1, HEAD: 1, TITLE: 1
+}
+var RICH_ALLOWED_STYLES = {
+  'color': 1, 'background-color': 1, 'font-weight': 1, 'font-style': 1,
+  'font-size': 1, 'font-family': 1, 'text-decoration': 1
+}
+// Plain CSS values only: names, #hex, numbers/units, rgb(...), quoted font names.
+var RICH_SAFE_VALUE_RE = /^[#a-zA-Z0-9\s.,%'"()\-]+$/
+var RICH_UNSAFE_VALUE_RE = /url|expression|javascript|image|var\s*\(|attr\s*\(/i
+
+function isSafeStyleValue(value) {
+  return !!value && RICH_SAFE_VALUE_RE.test(value) && !RICH_UNSAFE_VALUE_RE.test(value)
+}
+
+/**
+ * Split a label list on '|' (if any pipe appears outside a tag) or ','.
+ * Delimiters inside <...> are ignored, so tag attributes may contain commas.
+ * A literal comma inside a label can be written as &#44;
+ */
+function splitLabelList(str) {
+  if (!str) return []
+  str = String(str)
+  var usePipe = false
+  var inTag = false
+  var i, ch
+  for (i = 0; i < str.length; i++) {
+    ch = str.charAt(i)
+    if (ch === '<') inTag = true
+    else if (ch === '>') inTag = false
+    else if (ch === '|' && !inTag) { usePipe = true; break }
+  }
+  var delimiter = usePipe ? '|' : ','
+  var parts = []
+  var current = ''
+  inTag = false
+  for (i = 0; i < str.length; i++) {
+    ch = str.charAt(i)
+    if (ch === '<') inTag = true
+    else if (ch === '>') inTag = false
+    if (ch === delimiter && !inTag) {
+      parts.push(current.trim())
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  parts.push(current.trim())
+  return parts
+}
+
+// Parse an HTML string into an inert document (no scripts run, nothing loads).
+function parseInertHtml(html) {
+  try {
+    if (typeof DOMParser !== 'undefined') {
+      var doc = new DOMParser().parseFromString('<!DOCTYPE html><body>' + html + '</body>', 'text/html')
+      if (doc && doc.body) return doc.body
+    }
+  } catch (e) { /* fall through */ }
+  return null
+}
+
+function copySafeStyles(src, dest) {
+  var styleAttr = src.getAttribute('style')
+  if (!styleAttr) return
+  var decls = styleAttr.split(';')
+  for (var i = 0; i < decls.length; i++) {
+    var idx = decls[i].indexOf(':')
+    if (idx < 0) continue
+    var prop = decls[i].slice(0, idx).trim().toLowerCase()
+    var value = decls[i].slice(idx + 1).trim()
+    if (RICH_ALLOWED_STYLES[prop] && isSafeStyleValue(value)) {
+      try { dest.style.setProperty(prop, value) } catch (e) { /* ignore invalid */ }
+    }
+  }
+}
+
+function sanitizeRichNodes(srcParent, destParent) {
+  var children = srcParent.childNodes
+  for (var i = 0; i < children.length; i++) {
+    var node = children[i]
+    if (node.nodeType === 3) {
+      destParent.appendChild(document.createTextNode(node.nodeValue))
+    } else if (node.nodeType === 1) {
+      var tag = node.nodeName.toUpperCase()
+      if (RICH_DROP_TAGS[tag]) continue
+      if (!RICH_ALLOWED_TAGS[tag]) {
+        // Unknown tag: keep its text/children, drop the tag itself.
+        sanitizeRichNodes(node, destParent)
+        continue
+      }
+      var el = document.createElement(tag.toLowerCase())
+      if (tag === 'FONT') {
+        var color = node.getAttribute('color')
+        var face = node.getAttribute('face')
+        var size = node.getAttribute('size')
+        if (color && isSafeStyleValue(color)) el.style.color = color
+        if (face && isSafeStyleValue(face)) el.style.fontFamily = face
+        if (size && /^[+-]?[1-7]$/.test(size.trim())) el.setAttribute('size', size.trim())
+      }
+      copySafeStyles(node, el)
+      if (tag !== 'BR') sanitizeRichNodes(node, el)
+      destParent.appendChild(el)
+    }
+  }
+}
+
+/**
+ * Render a label (optionally with a plain-text suffix) into `cell`,
+ * keeping only the allowed formatting. Falls back to plain text if the
+ * browser can't parse HTML safely.
+ */
+function renderRichLabel(cell, label, suffix) {
+  while (cell.firstChild) cell.removeChild(cell.firstChild)
+  var html = unEntity(label == null ? '' : String(label))
+  var body = html.indexOf('<') >= 0 || html.indexOf('&') >= 0 ? parseInertHtml(html) : null
+  if (body) {
+    sanitizeRichNodes(body, cell)
+  } else {
+    cell.appendChild(document.createTextNode(html))
+  }
+  if (suffix) cell.appendChild(document.createTextNode(suffix))
+}
+
+// Label text with all tags removed — for aria-labels and messages.
+function plainLabel(label) {
+  var html = unEntity(label == null ? '' : String(label))
+  if (html.indexOf('<') < 0 && html.indexOf('&') < 0) return html
+  var body = parseInertHtml(html)
+  if (!body) return html.replace(/<[^>]*>/g, '')
+  var all = body.getElementsByTagName('*')
+  for (var d = all.length - 1; d >= 0; d--) {
+    if (RICH_DROP_TAGS[all[d].nodeName.toUpperCase()] && all[d].parentNode) {
+      all[d].parentNode.removeChild(all[d])
+    }
+  }
+  var brs = body.getElementsByTagName('br')
+  for (var i = brs.length - 1; i >= 0; i--) {
+    brs[i].parentNode.replaceChild(body.ownerDocument.createTextNode(' '), brs[i])
+  }
+  return (body.textContent || '').replace(/\s+/g, ' ').trim()
+}
+
+function applyLabelWeight() {
+  var weight = String(safeGetPluginParameter('label_weight', '') || '').toLowerCase()
+  var container = document.getElementById('table-container')
+  if (container && weight === 'normal') {
+    container.className += ' labels-normal'
+  }
 }
 
 // RTL language detection
@@ -3331,6 +3493,10 @@ function initializeTableGrid() {
         }, 0)
       })
     }
+
+    // label_weight='normal' drops the default semibold on row/column labels
+    // so <b>…</b> inside a label actually stands out.
+    applyLabelWeight()
 
     // Determine which mode to use
     var useEnhancedMode = shouldUseEnhancedMode()

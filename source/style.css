@@ -1147,3 +1147,31 @@ td.subtotal-variance .cell-input {
 .gridTable input.cell[data-required="true"]:invalid {
     background-color: #fff5f5;
 }
+/* ====================
+   RICH-TEXT LABELS
+   ==================== */
+
+/* Formatting tags inside row/column labels. <b> is set explicitly heavier
+   than the default semibold label so it still reads as bold. */
+.row-label b, .row-label strong,
+.gridTable th b, .gridTable th strong,
+.current-header b, .current-header strong,
+.historical-header b, .historical-header strong {
+    font-weight: 800;
+}
+
+.row-label mark, .gridTable th mark,
+.current-header mark, .historical-header mark {
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+/* label_weight='normal': plain row/column labels, so bold words stand out.
+   Subtotal, grid-total and Total rows keep their emphasis. */
+.labels-normal .data-row:not(.subtotal-row):not(.grid-total-row) > th.row-label,
+.labels-normal th.current-header:not(.total-header),
+.labels-normal th.historical-header,
+.labels-normal .gridTable th[scope="row"],
+.labels-normal .gridTable th[scope="col"] {
+    font-weight: 400;
+}
