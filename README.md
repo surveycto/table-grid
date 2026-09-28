@@ -158,6 +158,9 @@ The following parameters enable advanced features:
 | `total_label` | Label for the totals header/row. Default is `"Total"`. Set to e.g. `"Sum"` when respondents enter their own totals. |
 | `subtotals` | Subtotal groups, separated by `\|`. Each group is `<subtotal row>:<rows it sums>`, e.g. `"3:1-2\|6:4-5"`. Sources accept ranges (`1-2`), lists (`3,6,7`), or a mix. Row numbers start at **1**. See [Subtotals and editable totals](#subtotals-and-editable-totals). |
 | `grid_total` | The grid total row, same `<row>:<rows it sums>` syntax, e.g. `"12:3,6,7,10,11"`. Sums subtotals and any ungrouped rows you list — never the raw line items twice. |
+| `na_cells` | Cells that do not apply and cannot be filled in, as `<rows>:<columns>` entries separated by `\|`, e.g. `"6-9:1"` (rows 6 to 9, column 1) or `"6:1,2\|12:2"`. A bare row number (`"7"`) closes every column of that row. Numbers start at **1**. See [Not-applicable cells](#not-applicable-cells). |
+| `na_label` | Text shown in a not-applicable cell. Default is `"N/A"`. |
+| `label_weight` | Set to `normal` to drop the default semibold on row and column labels, so words you bold with `<b>` stand out. Subtotal and total rows keep their emphasis. |
 | `subtotal_reference_label` | Prefix on the calculated-sum caption shown under an overridden subtotal. Default is `"Calculated"`. |
 | `format_numbers` | Set to `true` to format numbers with comma separators (real-time formatting). Default is `false`. |
 | `min_value` | Minimum allowed value for numeric inputs. Applies **globally** to every cell — per-cell, per-row and per-column limits are not supported. Set `min_value=0` (with `validation_strict='true'` and SurveyCTO's native `required=yes`) to block negative numbers. |
@@ -191,6 +194,31 @@ Customize validation messages for better user experience:
 - **`top`**: Historical values appear above the input field in each cell *(formerly `inline` — that name still works as an alias for backward compatibility)*
 - **`columns`**: Historical data appears in separate columns next to current data columns
 - **`toggle`**: Users can toggle between viewing historical data and current inputs
+
+### Not-applicable cells
+
+Some tables are presented as one grid even though not every row applies to every column — AHA's payer grid has Medicaid supplemental payment rows that are reported Net only. List those cells in `na_cells` and they render as hatched, empty and closed: they cannot be typed into, arrow keys and Tab step over them, and no historical value is shown for them.
+
+```
+custom-table-grid(
+  rows=17, cols=2, col_labels='Gross|Net',
+  subtotals='3:1-2|10:4-9|15:13-14',
+  grid_total='17:3,10,11,12,15,16',
+  na_cells='6-9:1'
+)
+```
+
+- **Stored as blank.** An N/A cell keeps its slot in the answer and is always empty — SurveyCTO's convention for an unanswered value — so the matrix shape and every `item-at()` position are unchanged.
+- **Not required.** `required=1` waits only on the open cells.
+- **Adds nothing.** N/A cells are skipped by subtotals, the grid total and `total`. A subtotal whose rows are *all* N/A in a column becomes N/A there automatically.
+- **Fails loudly.** A malformed entry, an out-of-range row or column, or marking a subtotal/total row itself shows a configuration error instead of the grid.
+- `na_cells` can come from a field (`na_cells=${na_spec}`), so which cells are closed can differ per respondent.
+
+### Formatted row and column labels
+
+Row and column labels accept a small set of inline HTML: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<mark>`, `<small>`, `<big>`, `<sub>`, `<sup>`, `<br>`, `<font color face size>`, and `<span style>` limited to colour, background colour, font weight/style/size/family and text decoration. Anything else is removed (unknown tags keep their text; scripts, links, images and event handlers never survive), because labels can come from field values.
+
+Build formatted labels in a `calculate` field and pass the field in (`row_labels=${labels}`), using double quotes inside the HTML — single quotes would end the parameter value. Commas and pipes inside a tag do not split the list; write a literal comma inside a label as `&#44;`. Pair with `label_weight='normal'` so bold words stand out from the rest of the label.
 
 ### Subtotals and editable totals
 

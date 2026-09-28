@@ -192,6 +192,14 @@ function getTableParameters() {
       "Subtotals sum down rows, so use total='column' or remove the total parameter.")
   }
 
+  // Parsed after subtotals: N/A-ness propagates up through subtotal groups,
+  // and a subtotal row can't itself be marked N/A.
+  params.naCells = parseNaCells(safeGetPluginParameter('na_cells', ''), params)
+  params.naLabel = safeGetPluginParameter('na_label', 'N/A')
+  for (var e = 0; e < params.naCells.errors.length; e++) {
+    params.subtotalConfig.errors.push(params.naCells.errors[e])
+  }
+
   debugLog('Processed parameters:', params)
   debugLog('=== END PARAMETER DEBUG ===')
 
@@ -392,6 +400,88 @@ function parseSubtotalConfig(subtotalsSpec, gridTotalSpec, rows) {
   return model
 }
 
+// ====================
+// NOT-APPLICABLE (N/A) CELLS
+// ====================
+
+/**
+ * Parse `na_cells`: cells that do not apply and cannot be filled in.
+ *
+ *   na_cells='6-9:1'        rows 6 to 9, column 1
+ *   na_cells='6:1,2|12:2'   row 6 columns 1 and 2; row 12 column 2
+ *   na_cells='7'            every column of row 7
+ *
+ * Same 1-based "<rows>:<columns>" style as `subtotals`, and just as strict:
+ * a typo fails loudly rather than leaving a cell open that should be closed.
+ *
+ * N/A cells stay in the answer matrix as blanks (SurveyCTO's convention for
+ * an unanswered value), so the matrix shape and every item-at() position are
+ * unchanged. They are excluded from required checks and add nothing to sums.
+ *
+ * A subtotal whose sources are all N/A in a column is itself N/A there, so
+ * the author need not list it and required=1 isn't left waiting on it.
+ *
+ * Returns { cells: {"r,c": true}, errors: [] } with 0-based keys.
+ */
+function parseNaCells(spec, params) {
+  var model = { cells: {}, errors: [] }
+  if (spec === null || spec === undefined || String(spec).trim() === '') return model
+
+  var chunks = String(spec).split('|')
+  for (var i = 0; i < chunks.length; i++) {
+    var raw = chunks[i].trim()
+    if (!raw) continue
+    var colon = raw.indexOf(':')
+    var rowPart = colon >= 0 ? raw.slice(0, colon) : raw
+    var colPart = colon >= 0 ? raw.slice(colon + 1) : null
+    var rows = parseRowRefs(rowPart, params.rows)
+    var cols = colPart === null ? allIndices(params.cols) : parseRowRefs(colPart, params.cols)
+    if (!rows || !cols) {
+      model.errors.push('na_cells: could not read "' + raw +
+        '". Expected <rows>:<columns>, for example 6-9:1. Row numbers run from 1 to ' + params.rows +
+        ' and column numbers from 1 to ' + params.cols + '.')
+      continue
+    }
+    for (var r = 0; r < rows.length; r++) {
+      for (var c = 0; c < cols.length; c++) {
+        if (isSubtotalRow(params, rows[r])) {
+          model.errors.push('na_cells: row ' + (rows[r] + 1) + ' holds a subtotal or total, so its cells cannot be marked N/A. ' +
+            'Mark the rows it sums instead; a subtotal becomes N/A automatically when all of them are.')
+          return model
+        }
+        model.cells[rows[r] + ',' + cols[c]] = true
+      }
+    }
+  }
+
+  // Derive N/A subtotals. Groups are in dependency order, so a grid total
+  // sees subtotals that were just marked N/A.
+  var cfg = params.subtotalConfig
+  if (cfg && cfg.configured) {
+    for (var g = 0; g < cfg.groups.length; g++) {
+      var group = cfg.groups[g]
+      for (var col = 0; col < params.cols; col++) {
+        var allNa = true
+        for (var s = 0; s < group.sources.length; s++) {
+          if (!model.cells[group.sources[s] + ',' + col]) { allNa = false; break }
+        }
+        if (allNa) model.cells[group.target + ',' + col] = true
+      }
+    }
+  }
+  return model
+}
+
+function allIndices(n) {
+  var out = []
+  for (var i = 0; i < n; i++) out.push(i)
+  return out
+}
+
+function isNaCell(params, rowIndex, colIndex) {
+  return !!(params.naCells && params.naCells.cells[rowIndex + ',' + colIndex])
+}
+
 /** True when this row holds a subtotal or the grid total. */
 function isSubtotalRow(params, rowIndex) {
   if (!params.subtotalConfig || isNaN(rowIndex) || rowIndex < 0) return false
@@ -517,6 +607,7 @@ function shouldUseEnhancedMode() {
     'show_historical', 'historical_data', 'historical_display', 'historical_label',
     'total', 'format_numbers', 'min_value', 'max_value', 'allow_decimals', 'validation_strict',
     'subtotals', 'grid_total', // Subtotal groups imply the enhanced matrix format
+    'na_cells',
     'col_labels', 'row_labels' // New comma-separated format
   ]
 
@@ -1356,7 +1447,9 @@ function generateTableBody(params) {
         // Historical data cell (read-only)
         var histCell = document.createElement('td')
         histCell.className = 'historical-cell'
-        var histValue = getHistoricalValue(params.historicalData, rowIndex, colIndex)
+        var histValue = isNaCell(params, rowIndex, colIndex)
+          ? null
+          : getHistoricalValue(params.historicalData, rowIndex, colIndex)
 
         if (histValue !== null && histValue !== undefined && String(histValue).trim() !== '') {
           histCell.textContent = params.formatNumbers ? formatNumber(histValue, true) : histValue
@@ -1372,7 +1465,7 @@ function generateTableBody(params) {
 
       // Current data cell (input)
       var currentCell = document.createElement('td')
-      currentCell.className = 'current-cell'
+      currentCell.className = isNaCell(params, rowIndex, colIndex) ? 'current-cell na-cell' : 'current-cell'
 
       var cellContent = createCellContent(params, rowIndex, colIndex)
       currentCell.appendChild(cellContent)
@@ -1435,6 +1528,10 @@ function createCellContent(params, rowIndex, colIndex) {
   container.className = 'cell-content'
 
   debugLog('Creating cell [' + rowIndex + '][' + colIndex + ']')
+
+  if (isNaCell(params, rowIndex, colIndex)) {
+    return createNaCellContent(params, container, rowIndex, colIndex)
+  }
 
   // Historical value display (inline mode OR toggle mode — prepend above input)
   if (params.showHistorical && (params.historicalDisplay === 'top' || params.historicalDisplay === 'toggle')) {
@@ -1539,6 +1636,35 @@ function createCellContent(params, rowIndex, colIndex) {
   return container
 }
 
+/**
+ * An N/A cell keeps a (disabled, always-empty) input so every reader of the
+ * matrix — serialization, sums, loading, validation — finds a cell at
+ * [row][col] and reads a blank, with no special case of its own. Disabled
+ * inputs take no focus, no typing and no Tab stop. No historical value is
+ * shown: there is nothing to compare against.
+ */
+function createNaCellContent(params, container, rowIndex, colIndex) {
+  container.className += ' na-content'
+
+  var input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'cell-input na-input default-answer-text-size'
+  input.setAttribute('data-row', rowIndex)
+  input.setAttribute('data-col', colIndex)
+  input.setAttribute('data-na', 'true')
+  input.disabled = true
+  input.tabIndex = -1
+  input.value = ''
+  input.placeholder = params.naLabel || 'N/A'
+
+  var rowLabel = params.rowLabels[rowIndex] || 'Row ' + (rowIndex + 1)
+  var colLabel = params.colLabels[colIndex] || 'Column ' + (colIndex + 1)
+  input.setAttribute('aria-label', plainLabel(rowLabel) + ' ' + plainLabel(colLabel) + ': not applicable')
+
+  container.appendChild(input)
+  return container
+}
+
 // ====================
 // SUBTOTAL CALCULATION & OVERRIDE
 // ====================
@@ -1549,7 +1675,7 @@ function calculateGroupSum(group, colIndex) {
   var hasValue = false
   for (var s = 0; s < group.sources.length; s++) {
     var src = document.querySelector('input[data-row="' + group.sources[s] + '"][data-col="' + colIndex + '"]')
-    if (!src || !src.value) continue
+    if (!src || !src.value || src.getAttribute('data-na') === 'true') continue
     var n = parseFloat(unformatNumber(src.value))
     if (!isNaN(n)) {
       sum += n
@@ -1591,7 +1717,7 @@ function restoreCalculated(input) {
  */
 function applySubtotalCell(params, group, colIndex, calcValue) {
   var input = document.querySelector('input[data-row="' + group.target + '"][data-col="' + colIndex + '"]')
-  if (!input) return
+  if (!input || input.getAttribute('data-na') === 'true') return
   var caption = document.querySelector('.subtotal-calc[data-calc-row="' + group.target + '"][data-calc-col="' + colIndex + '"]')
 
   if (input.getAttribute('data-manual') !== 'true') {
@@ -2058,32 +2184,21 @@ function handleKeyboardNavigation(event, currentInput) {
   var params = getTableParameters()
   var nextInput = null
 
-  switch (event.key) {
-    case 'ArrowUp':
-      if (row > 0) {
-        nextInput = document.querySelector('input[data-row="' + (row - 1) + '"][data-col="' + col + '"]')
-      }
+  var step = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[event.key]
+  if (!step) return // Tab and everything else keep their default behaviour
+
+  // Walk in the arrow's direction, stepping over N/A cells (disabled inputs
+  // can't take focus, so stopping on one would strand the cursor).
+  var r = row + step[0]
+  var c = col + step[1]
+  while (r >= 0 && r < params.rows && c >= 0 && c < params.cols) {
+    var candidate = document.querySelector('input[data-row="' + r + '"][data-col="' + c + '"]')
+    if (candidate && !candidate.disabled) {
+      nextInput = candidate
       break
-    case 'ArrowDown':
-      if (row < params.rows - 1) {
-        nextInput = document.querySelector('input[data-row="' + (row + 1) + '"][data-col="' + col + '"]')
-      }
-      break
-    case 'ArrowLeft':
-      if (col > 0) {
-        nextInput = document.querySelector('input[data-row="' + row + '"][data-col="' + (col - 1) + '"]')
-      }
-      break
-    case 'ArrowRight':
-      if (col < params.cols - 1) {
-        nextInput = document.querySelector('input[data-row="' + row + '"][data-col="' + (col + 1) + '"]')
-      }
-      break
-    case 'Tab':
-      // Let default tab behavior handle this
-      return
-    default:
-      return
+    }
+    r += step[0]
+    c += step[1]
   }
 
   if (nextInput && event.key.startsWith('Arrow')) {
@@ -2111,7 +2226,8 @@ function updateAnswer() {
     var rowData = []
     for (var col = 0; col < params.cols; col++) {
       var input = document.querySelector('input[data-row="' + row + '"][data-col="' + col + '"]')
-      var value = input ? input.value : ''
+      // N/A cells always serialize blank, whatever their input holds.
+      var value = input && input.getAttribute('data-na') !== 'true' ? input.value : ''
 
       // Numeric: unformat thousands separators before serialization. This
       // covers both format_numbers=true (display formatting on) and any
@@ -2133,7 +2249,8 @@ function updateAnswer() {
       }
 
       rowData.push(value)
-      allCells.push(value)
+      // N/A cells are blank by design; required=1 must not wait on them.
+      if (!(input && input.getAttribute('data-na') === 'true')) allCells.push(value)
     }
     answerMatrix.push(rowData.join(','))
   }
@@ -2369,6 +2486,10 @@ function loadExistingData(params) {
 }
 
 function loadValueIntoInput(input, value, params) {
+  // A saved answer from before a cell was marked N/A may still hold a value
+  // there. The cell stays blank; the next setAnswer drops the stale value.
+  if (input.getAttribute('data-na') === 'true') return
+
   // Store the original loaded value for comparison
   input.setAttribute('data-loaded-value', value)
 
@@ -2706,7 +2827,7 @@ function setFocus() {
   var firstInput = null
 
   // Try enhanced mode first
-  firstInput = document.querySelector('.cell-input')
+  firstInput = document.querySelector('.cell-input:not([data-na])')
 
   // Fallback to legacy mode
   if (!firstInput) {

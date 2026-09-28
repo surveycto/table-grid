@@ -98,10 +98,22 @@
    container's bottom border lands inside the iframe.
    The 4px margin on the container preserves a tiny visual buffer between
    the table's bottom border and the iframe edge so descender/scrollbar
-   pixels aren't flush with the iframe boundary. */
+   pixels aren't flush with the iframe boundary.
+
+   Zeroing the body margin is not enough on its own: the first child's top
+   margin (the label, 12px) and the container's bottom margin collapse
+   THROUGH an unpadded body, so they sit outside body.offsetHeight too and
+   the iframe still came up ~16px short, cutting off the table's last row
+   and bottom border (EST-358, 28 Sep 2026). display: flow-root makes the
+   body a block formatting context, which contains its children's margins
+   so body.offsetHeight is the full content height. */
 html, body {
     margin: 0;
     padding: 0;
+}
+
+body {
+    display: flow-root;
 }
 
 #table-container {
@@ -1174,4 +1186,38 @@ td.subtotal-variance .cell-input {
 .labels-normal .gridTable th[scope="row"],
 .labels-normal .gridTable th[scope="col"] {
     font-weight: 400;
+}
+
+/* ====================
+   NOT-APPLICABLE (N/A) CELLS  (na_cells)
+   ==================== */
+
+/* Hatched, muted cell with a dashed, empty box showing the N/A label.
+   The input stays in the DOM (disabled) so the matrix keeps its shape;
+   everything here only makes it read clearly as "nothing to enter". */
+#table-container td.na-cell {
+    background: repeating-linear-gradient(
+        135deg,
+        var(--bg-secondary) 0,
+        var(--bg-secondary) 6px,
+        var(--bg-row-header) 6px,
+        var(--bg-row-header) 7px
+    );
+}
+
+#table-container input.na-input,
+#table-container input.na-input:hover {
+    background: transparent;
+    border: 1px dashed var(--border-medium);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+    box-shadow: none;
+    opacity: 1;
+    -webkit-text-fill-color: var(--text-secondary);
+}
+
+#table-container input.na-input::placeholder {
+    color: var(--text-secondary);
+    font-style: italic;
+    opacity: 1;
 }

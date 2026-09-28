@@ -462,6 +462,131 @@ results.append(run('14. Restore chip survives blur recompute (pointer race)', ch
          cell(2,0).value === '170', 'got ' + cell(2,0).value);""",
 ]))
 
+# --- 15. host iframe height covers the whole plug-in ----------------------
+# EST-358 (28 Sep 2026): the table's last row and bottom border were cut off
+# in web Collect. The host sizes the iframe to body.offsetHeight, and the
+# label's top margin collapsed through <body>, so offsetHeight came up short.
+# Uses the AHA payer-grid mirror, which is what AHA reported it on.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import aha_mirror  # noqa: E402
+
+results.append(run('15. body.offsetHeight (what the host sizes the iframe to) covers the table', aha_mirror.params(), [
+    """var tc = document.getElementById('table-container');
+       var bottom = Math.ceil(tc.getBoundingClientRect().bottom + window.scrollY);
+       __assert('body.offsetHeight reaches the table bottom border',
+         document.body.offsetHeight >= bottom,
+         'offsetHeight=' + document.body.offsetHeight + ' < container bottom=' + bottom);
+       __assert('body does not start below the page top (no collapsed margin)',
+         document.body.getBoundingClientRect().top + window.scrollY === 0,
+         'body top=' + document.body.getBoundingClientRect().top);""",
+]))
+
+# --- 16. N/A cells ------------------------------------------------------------
+AHA_NA = aha_mirror.params()   # na_cells='6-9:1': Medicaid c-f have no Gross
+results.append(run('16a. N/A cells render closed and show no history', AHA_NA, [
+    """var na = document.querySelectorAll('input[data-na="true"]');
+       __assert('four N/A cells', na.length === 4, 'got ' + na.length);
+       __assert('N/A cells are the Gross column of rows 6-9',
+         [5,6,7,8].every(function (r) { return cell(r,0).getAttribute('data-na') === 'true'; }) &&
+         [5,6,7,8].every(function (r) { return cell(r,1).getAttribute('data-na') !== 'true'; }), 'wrong cells');
+       __assert('N/A inputs are disabled and out of the tab order',
+         Array.prototype.every.call(na, function (i) { return i.disabled && i.tabIndex === -1; }), 'focusable');
+       __assert('N/A label shown', cell(5,0).placeholder === 'N/A', cell(5,0).placeholder);
+       __assert('td marked na-cell', cell(5,0).closest('td').classList.contains('na-cell'), 'no class');
+       __assert('no historical chip under N/A cells',
+         !cell(5,0).closest('td').querySelector('.bottom-historical'), 'chip present');
+       __assert('Net column keeps its history chip',
+         !!cell(5,1).closest('td').querySelector('.bottom-historical'), 'chip missing');
+       __assert('screen reader hears "not applicable"',
+         /not applicable$/.test(cell(5,0).getAttribute('aria-label')), cell(5,0).getAttribute('aria-label'));""",
+]))
+
+results.append(run('16b. N/A cells save blank, keep matrix shape, add nothing to sums', AHA_NA, [
+    """type(3,0,'100'); type(4,0,'50');   // Medicaid a, b Gross
+       type(5,1,'7'); type(6,1,'0');      // Medicaid c, d Net
+       cell(5,0).value = '999';           // a stray write must not leak into the answer""",
+    """type(3,0,'100');""",
+    """var rows = lastAnswer().split('|');
+       __assert('17 rows, 2 cells each', rows.length === 17 &&
+         rows.every(function (r) { return r.split(',').length === 2; }), lastAnswer());
+       __assert('N/A slots serialize blank', rows[5].split(',')[0] === '' && rows[8].split(',')[0] === '', rows.slice(5,9).join('|'));
+       __assert('Total Medicaid Gross = 100 + 50', cell(9,0).value === '150', 'got ' + cell(9,0).value);
+       __assert('Total Medicaid Net = 7 + 0', cell(9,1).value === '7', 'got ' + cell(9,1).value);""",
+]))
+
+req = dict(AHA_NA); req['required'] = '1'
+fill_all = ';'.join("if (!cell(%d,%d).disabled && !cell(%d,%d).getAttribute('data-subtotal')) type(%d,%d,'1')"
+                    % (r, c, r, c, r, c) for r in range(17) for c in range(2))
+results.append(run('16c. required=1 is satisfied without the N/A cells', req, [
+    fill_all,
+    """__assert('answer set once every open cell is filled',
+         typeof lastAnswer() === 'string' && lastAnswer().length > 0, 'answer=' + JSON.stringify(lastAnswer()));""",
+    """type(0,0,'');""",
+    """__assert('emptying an open cell still blocks', lastAnswer() === '', 'answer=' + JSON.stringify(lastAnswer()));""",
+]))
+
+results.append(run('16d. Arrow keys step over N/A cells', AHA_NA, [
+    """cell(4,0).focus();
+       cell(4,0).dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true, cancelable: true}));""",
+    """__assert('ArrowDown from row 5 lands on row 10 (skips 6-9)',
+         document.activeElement === cell(9,0), 'focused row ' + (document.activeElement && document.activeElement.getAttribute('data-row')));""",
+]))
+
+# Separate run: in headless Chrome a focus change queued by the previous
+# navigation can land after the next step starts. Checked by hand in a real
+# browser (web-Collect harness) as well.
+results.append(run('16d2. Arrow into an N/A cell with nothing beyond it stays put', AHA_NA, [
+    """cell(7,1).focus();
+       cell(7,1).dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', bubbles: true, cancelable: true}));
+       __assert('focus stays on the Net cell', document.activeElement === cell(7,1),
+         'focus moved to ' + (document.activeElement && document.activeElement.getAttribute('data-row')));""",
+]))
+
+results.append(run('16e. A stale value saved in a now-N/A cell is not loaded', AHA_NA, [
+    """__assert('N/A cell stays blank', cell(5,0).value === '', 'got ' + cell(5,0).value);
+       __assert('neighbouring value still loads', cell(5,1).value === '7', 'got ' + cell(5,1).value);
+       __assert('stale value excluded from the subtotal', cell(9,0).value === '150', 'got ' + cell(9,0).value);""",
+], current=',|,|,|100,|50,|555,7|,|,|,|150,7|,|,|,|,|,|,|,'))
+
+derived = dict(AHA_NA); derived['na_cells'] = '13-14:2'
+results.append(run('16f. A subtotal whose sources are all N/A becomes N/A itself', derived, [
+    """__assert('Total Commercial Net is N/A', cell(14,1).getAttribute('data-na') === 'true', 'not N/A');
+       __assert('Total Commercial Gross stays open', cell(14,0).getAttribute('data-na') !== 'true', 'wrongly N/A');
+       __assert('grid TOTAL Net stays open (other sources remain)', cell(16,1).getAttribute('data-na') !== 'true', 'wrongly N/A');""",
+]))
+
+whole = dict(AHA_NA); whole['na_cells'] = '11'
+results.append(run('16g. A bare row number closes every column', whole, [
+    """__assert('both columns of row 11 are N/A',
+         cell(10,0).getAttribute('data-na') === 'true' && cell(10,1).getAttribute('data-na') === 'true', 'not both');""",
+]))
+
+for spec, why, needle in [('3:1', 'subtotal row', 'holds a subtotal'),
+                          ('6-9:3', 'column out of range', '6-9:3'),
+                          ('6oops:1', 'garbage row', '6oops:1')]:
+    b = dict(AHA_NA); b['na_cells'] = spec
+    results.append(run('16h. na_cells rejects "%s" (%s)' % (spec, why), b, [
+        """__assert('config error rendered', !!document.querySelector('.config-error'), 'NO ERROR - spec was accepted');
+           var t = document.querySelector('.config-error').textContent;
+           __assert('error explains the problem', t.indexOf(%s) >= 0, t);""" % json.dumps(needle),
+    ]))
+
+# --- 17. rich-text labels (Amber's 2.2.0 build) ----------------------------
+rich = {'rows': '2', 'cols': '1', 'col_labels': 'Value',
+        'row_labels': '<b>Bold</b> <span style="color:red; background-image:url(x)">red</span>'
+                      '|<img src=x onerror="window.__pwned=1">x<script>window.__pwned=2</script>'}
+results.append(run('17. Rich labels keep formatting and drop anything executable', rich, [
+    """var l = document.querySelectorAll('th.row-label');
+       __assert('<b> survives', !!l[0].querySelector('b'), l[0].innerHTML);
+       var s = l[0].querySelector('span');
+       __assert('safe colour kept', s && s.style.color === 'red', s ? s.getAttribute('style') : 'no span');
+       __assert('url() style dropped', s && !s.style.backgroundImage, s ? s.getAttribute('style') : '');
+       __assert('no <img>/<script> rendered', !l[1].querySelector('img,script'), l[1].innerHTML);
+       __assert('nothing executed', !window.__pwned, 'pwned=' + window.__pwned);
+       __assert('aria-label is plain text', cell(0,0).getAttribute('aria-label') === 'Current value for Bold red Value',
+         cell(0,0).getAttribute('aria-label'));""",
+]))
+
 fails = sum(len(re.findall(r'^FAIL', r, re.M)) for r in results)
 passes = sum(len(re.findall(r'^PASS', r, re.M)) for r in results)
 print('=' * 72)
