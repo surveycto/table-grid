@@ -15,6 +15,7 @@ Variants (?v=):
     aha        AHA payer grid mirror with na_cells (current build)
     aha-na     AHA mirror as AHA runs it today: "Field Not Required" text in
                the history, no na_cells
+    fixed-assets  3x1 Gross - Less = Net grid (grid_total='3:1,-2', v2.3.0)
 Add &top=N to push the plug-in further down the page (default 1 card above).
 """
 import html
@@ -34,6 +35,11 @@ IFR = 'https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.3.9/'
 VARIANTS = {
     'aha': ('Revenue by Payer both', aha_mirror.params(na_cells=True)),
     'aha-na': ('Revenue by Payer both', aha_mirror.params(na_cells=False, na_text='Field Not Required')),
+    'fixed-assets': ('Fixed assets', {
+        'rows': '3', 'cols': '1', 'col_labels': 'Amount',
+        'row_labels': 'Gross fixed assets,Less: accumulated depreciation,<b>Net fixed assets</b>',
+        'grid_total': '3:1,-2', 'min_value': '0', 'validation_strict': 'true',
+        'format_numbers': 'true'}),
 }
 
 CHILD = """<!doctype html>

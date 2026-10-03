@@ -156,12 +156,13 @@ The following parameters enable advanced features:
 | `historical_label` | Label for historical data. Default is `"Last Year"`. |
 | `total` | Read-only totals. `row` adds a totals **column** on the right (each row's across-columns sum); `column` adds a totals **row** at the bottom (each column's down-rows sum). Note the names describe what is summed, not where the result appears. |
 | `total_label` | Label for the totals header/row. Default is `"Total"`. Set to e.g. `"Sum"` when respondents enter their own totals. |
-| `subtotals` | Subtotal groups, separated by `\|`. Each group is `<subtotal row>:<rows it sums>`, e.g. `"3:1-2\|6:4-5"`. Sources accept ranges (`1-2`), lists (`3,6,7`), or a mix. Row numbers start at **1**. See [Subtotals and editable totals](#subtotals-and-editable-totals). |
+| `subtotals` | Subtotal groups, separated by `\|`. Each group is `<subtotal row>:<rows it sums>`, e.g. `"3:1-2\|6:4-5"`. Sources accept ranges (`1-2`), lists (`3,6,7`), or a mix. Put `-` before a row (or range) to subtract it: `"3:1,-2"`. Row numbers start at **1**. See [Subtotals and editable totals](#subtotals-and-editable-totals). |
 | `grid_total` | The grid total row, same `<row>:<rows it sums>` syntax, e.g. `"12:3,6,7,10,11"`. Sums subtotals and any ungrouped rows you list — never the raw line items twice. |
 | `na_cells` | Cells that do not apply and cannot be filled in, as `<rows>:<columns>` entries separated by `\|`, e.g. `"6-9:1"` (rows 6 to 9, column 1) or `"6:1,2\|12:2"`. A bare row number (`"7"`) closes every column of that row. Numbers start at **1**. See [Not-applicable cells](#not-applicable-cells). |
 | `na_label` | Text shown in a not-applicable cell. Default is `"N/A"`. |
 | `label_weight` | Set to `normal` to drop the default semibold on row and column labels, so words you bold with `<b>` stand out. Subtotal and total rows keep their emphasis. |
 | `subtotal_reference_label` | Prefix on the calculated-sum caption shown under an overridden subtotal. Default is `"Calculated"`. |
+| `negative_total_message` | Note shown under a subtotal or total that [subtracts](#rows-that-subtract) when it falls below zero. Default is `"Below zero. Please check this figure."`. |
 | `format_numbers` | Set to `true` to format numbers with comma separators (real-time formatting). Default is `false`. |
 | `min_value` | Minimum allowed value for numeric inputs. Applies **globally** to every cell — per-cell, per-row and per-column limits are not supported. Set `min_value=0` (with `validation_strict='true'` and SurveyCTO's native `required=yes`) to block negative numbers. |
 | `max_value` | Maximum allowed value for numeric inputs. Global, as above. Does not apply to subtotal or grid-total rows. |
@@ -248,6 +249,28 @@ Rows 7 (`Other government`) and 11 (`Self-pay`) above are **one-off line items**
 
 This is also why the grid total sums *subtotals and one-offs* rather than every line item: adding the line items again would double-count everything that already rolls into a subtotal, and it would discard subtotal overrides.
 
+#### Rows that subtract
+
+Put `-` before a source row to subtract it instead of adding it. A fixed-assets table, for example:
+
+```
+custom-table-grid(
+  rows=3,
+  cols=1,
+  row_labels='Gross fixed assets,Less: accumulated depreciation,Net fixed assets',
+  col_labels='Amount',
+  grid_total='3:1,-2',
+  min_value=0,
+  validation_strict='true',
+  format_numbers='true'
+)
+```
+
+- The form designer decides which rows subtract; the label (`Less: …`) is yours to word. A minus also works before a range (`4:1,-2-3` is row 1 minus rows 2 and 3) and in `subtotals`.
+- Respondents type the deduction as a **positive** amount, and it is **saved as typed**. Only the sum applies the sign, so the example above stores `1000000|400000|600000`. A negative typed into a subtracting row is not flipped: it is subtracted as a negative (so it adds), and `min_value=0` blocks it as usual.
+- A total that subtracts can legitimately fall below zero, so `min_value` does **not** apply to it (nor to a total built on one). Instead, a value below zero, calculated or typed over, shows a note under the cell (`negative_total_message`). Like an override mismatch, it is **a warning, never a blocker**. A total that only adds is never flagged, because there a negative can only come from negative entries the form already allows.
+- `total='column'` adds every row, so it cannot be combined with a subtracting row; use a `grid_total` row instead. That combination is a configuration error.
+
 #### Override behaviour
 
 - A subtotal or total cell auto-fills with its calculated sum and follows later edits to its components.
@@ -260,7 +283,7 @@ This is also why the grid total sums *subtotals and one-offs* rather than every 
 
 - Subtotals are **row-based only**. Because they sum down rows, they cannot be combined with `total='row'` (which adds a totals column on the right). That combination is a configuration error and the plug-in refuses to render, showing the reason.
 - Any malformed `subtotals` / `grid_total` value — an out-of-range row, a duplicated subtotal row, a group that sums itself, or a subtotal used before it is defined — also fails loudly at load rather than rendering a grid that silently sums nothing.
-- `max_value` does **not** apply to subtotal or total rows: a sum exceeds the ceiling meant for the items it sums by construction. `min_value` and `allow_decimals` still apply.
+- `max_value` does **not** apply to subtotal or total rows: a sum exceeds the ceiling meant for the items it sums by construction. `min_value` and `allow_decimals` still apply, except that `min_value` is lifted for [totals that subtract](#rows-that-subtract).
 
 #### What gets stored
 

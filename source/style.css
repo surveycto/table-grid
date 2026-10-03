@@ -913,6 +913,23 @@ td.subtotal-variance .cell-input {
     font-weight: 600;
 }
 
+/* A subtracting subtotal below zero: allowed but unusual, so a note in the
+   soft-warning amber, never the hard-error red. */
+.subtotal-negative {
+    display: block;
+    font-size: var(--font-size-small);
+    font-weight: 500;
+    color: #8a4b18;
+    font-family: var(--font-family-primary);
+    line-height: 1.2;
+    white-space: normal;
+}
+
+#table-container td.subtotal-below-zero .cell-input {
+    border-color: var(--warning);
+    background-color: #fffbf0;
+}
+
 /* ====================
    CONFIGURATION ERROR
    ==================== */

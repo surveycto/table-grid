@@ -587,6 +587,132 @@ results.append(run('17. Rich labels keep formatting and drop anything executable
          cell(0,0).getAttribute('aria-label'));""",
 ]))
 
+# --- 18. subtracting rows (AHA Fixed Assets, Oct 2026) ------------------------
+# A leading '-' in subtotals/grid_total marks a row that subtracts. The
+# respondent types positive amounts; only the sum applies the sign.
+FA = {'rows': '3', 'cols': '1', 'col_labels': 'Amount',
+      'row_labels': 'Gross fixed assets,Less: accumulated depreciation,Net fixed assets',
+      'grid_total': '3:1,-2', 'min_value': '0', 'validation_strict': 'true'}
+
+NEG_FLAG = """function negFlag(r, c) {
+  var f = document.querySelector('.subtotal-negative[data-neg-row="' + r + '"][data-neg-col="' + c + '"]');
+  return f && f.style.display !== 'none' ? f : null;
+}
+function hardMsg(r, c) {
+  var m = cell(r, c).parentNode.querySelector('.validation-message');
+  return m ? m.textContent : '';
+}"""
+
+results.append(run('18a. Net = Gross - Less; amounts saved as typed', FA, [
+    NEG_FLAG + """; type(0,0,'1000'); type(1,0,'400');""",
+    """__assert('Net = 1000 - 400 = 600', cell(2,0).value === '600', 'got ' + cell(2,0).value);
+       __assert('saved answer keeps the deduction positive', lastAnswer() === '1000|400|600',
+         'answer=' + JSON.stringify(lastAnswer()));
+       __assert('no below-zero flag on a positive Net', !negFlag(2,0), 'flag shown');""",
+]))
+
+results.append(run('18b. A negative Net is allowed and flagged, never blocked', FA, [
+    NEG_FLAG + """; type(0,0,'100'); type(1,0,'400');""",
+    """__assert('Net = 100 - 400 = -300', cell(2,0).value === '-300', 'got ' + cell(2,0).value);
+       __assert('below-zero flag shown', !!negFlag(2,0), 'no flag');
+       __assert('flag uses the default wording', negFlag(2,0) && negFlag(2,0).textContent.indexOf('Below zero') >= 0,
+         negFlag(2,0) ? negFlag(2,0).textContent : '');
+       __assert('min_value=0 does not hard-fail the Net', hardMsg(2,0).indexOf('at least') < 0, hardMsg(2,0));
+       __assert('answer still set (not blocked)', lastAnswer() === '100|400|-300', 'answer=' + JSON.stringify(lastAnswer()));""",
+    """type(0,0,'500');""",
+    """__assert('flag clears once Net is back above zero', !negFlag(2,0) && cell(2,0).value === '100', 'value ' + cell(2,0).value);""",
+]))
+
+results.append(run('18c. A negative typed into the deduction row is not flipped; min_value still blocks it', FA, [
+    NEG_FLAG + """; type(0,0,'1000'); type(1,0,'-400');""",
+    """__assert('typed value kept as typed', cell(1,0).value === '-400', 'got ' + cell(1,0).value);
+       __assert('min_value hard message on the line item', hardMsg(1,0).indexOf('at least') >= 0, hardMsg(1,0));
+       __assert('strict mode blocks the answer', lastAnswer() === '', 'answer=' + JSON.stringify(lastAnswer()));""",
+]))
+
+results.append(run('18d. A typed-over negative Net is flagged the same way, not blocked', FA, [
+    NEG_FLAG + """; type(0,0,'1000'); type(1,0,'400');""",
+    """type(2,0,'-50');""",
+    """__assert('override kept', cell(2,0).value === '-50' && cell(2,0).getAttribute('data-manual') === 'true', cell(2,0).value);
+       __assert('below-zero flag shown on the override', !!negFlag(2,0), 'no flag');
+       __assert('no hard min message on the override', hardMsg(2,0).indexOf('at least') < 0, hardMsg(2,0));
+       __assert('answer still set', lastAnswer() === '1000|400|-50', 'answer=' + JSON.stringify(lastAnswer()));
+       var cap = document.querySelector('.subtotal-calc[data-calc-row="2"][data-calc-col="0"]');
+       __assert('reference shows the signed calculation', cap && cap.textContent.indexOf('Calculated: 600') >= 0,
+         cap ? cap.textContent : 'no caption');""",
+]))
+
+results.append(run('18e. Reload: a Net matching Gross - Less is recognised as calculated', FA, [
+    NEG_FLAG + """;
+       __assert('Net not treated as an override', cell(2,0).getAttribute('data-manual') !== 'true', 'marked manual');
+       __assert('no variance styling', !document.querySelector('td.subtotal-variance'), 'variance shown');""",
+], current='1000|400|600'))
+
+results.append(run('18f. Reload: a saved negative Net is flagged again', FA, [
+    NEG_FLAG + """;
+       __assert('flag restored on load', !!negFlag(2,0), 'no flag');""",
+], current='100|400|-300'))
+
+added = {'rows': '3', 'cols': '1', 'row_labels': 'Income,Adjustment,Total',
+         'grid_total': '3:1,2'}
+results.append(run('18g. Plain addition with a negative component is not flagged', added, [
+    NEG_FLAG + """; type(0,0,'100'); type(1,0,'-400');""",
+    """__assert('Total = 100 + -400', cell(2,0).value === '-300', 'got ' + cell(2,0).value);
+       __assert('no below-zero flag without a subtracting row', !negFlag(2,0), 'flag shown');""",
+]))
+
+nested = {'rows': '5', 'cols': '1', 'row_labels': 'Gross,Less: depreciation,Net,Land,Total',
+          'subtotals': '3:1,-2', 'grid_total': '5:3,4', 'min_value': '0', 'validation_strict': 'true'}
+results.append(run('18h. A total built on a subtracting subtotal is exempt and flagged too', nested, [
+    NEG_FLAG + """; type(0,0,'100'); type(1,0,'400'); type(3,0,'50');""",
+    """__assert('Net = -300', cell(2,0).value === '-300', 'got ' + cell(2,0).value);
+       __assert('Total = -300 + 50 = -250', cell(4,0).value === '-250', 'got ' + cell(4,0).value);
+       __assert('Total flagged', !!negFlag(4,0), 'no flag');
+       __assert('Total not hard-failed', hardMsg(4,0).indexOf('at least') < 0, hardMsg(4,0));
+       __assert('answer set', lastAnswer() === '100|400|-300|50|-250', 'answer=' + JSON.stringify(lastAnswer()));""",
+]))
+
+ranged = {'rows': '4', 'cols': '1', 'subtotals': '4:1,-2-3'}
+results.append(run('18i. A minus before a range subtracts every row in it', ranged, [
+    """type(0,0,'10'); type(1,0,'2'); type(2,0,'3');""",
+    """__assert('10 - 2 - 3 = 5', cell(3,0).value === '5', 'got ' + cell(3,0).value);""",
+]))
+
+custom = dict(FA); custom['negative_total_message'] = 'Net is negative - please check'
+results.append(run('18j. negative_total_message overrides the wording', custom, [
+    NEG_FLAG + """; type(0,0,'1'); type(1,0,'2');""",
+    """__assert('custom wording shown', negFlag(2,0) && negFlag(2,0).textContent === 'Net is negative - please check',
+         negFlag(2,0) ? negFlag(2,0).textContent : 'no flag');""",
+]))
+
+for key, spec, needle in [('grid_total', '3:1,--2', '3:1,--2'),
+                          ('grid_total', '3:1,-', '3:1,-'),
+                          ('grid_total', '3:1,-1', 'more than once'),
+                          ('grid_total', '3:-3,1', 'itself')]:
+    b = dict(FA); b[key] = spec
+    results.append(run('18k. %s rejects "%s"' % (key, spec), b, [
+        """__assert('config error rendered', !!document.querySelector('.config-error'), 'NO ERROR - spec was accepted');
+           var t = document.querySelector('.config-error').textContent;
+           __assert('error explains the problem', t.indexOf(%s) >= 0, t);""" % json.dumps(needle),
+    ]))
+
+colsum = {'rows': '4', 'cols': '1', 'subtotals': '3:1,-2', 'total': 'column'}
+results.append(run("18m. total='column' + a subtracting row fails loudly", colsum, [
+    """__assert('config error rendered', !!document.querySelector('.config-error'), 'NO ERROR - spec was accepted');
+       var t = document.querySelector('.config-error').textContent;
+       __assert('error names the clash and the fix', t.indexOf("total='column'") >= 0 && t.indexOf('grid_total') >= 0, t);""",
+]))
+
+colplain = {'rows': '4', 'cols': '1', 'subtotals': '3:1-2', 'total': 'column'}
+results.append(run("18n. total='column' + adding-only subtotals still renders", colplain, [
+    """__assert('no config error', !document.querySelector('.config-error'), document.querySelector('.config-error') ? document.querySelector('.config-error').textContent : '');""",
+]))
+
+na_neg = dict(FA); na_neg['na_cells'] = '-2:1'
+results.append(run('18l. na_cells does not accept a minus sign', na_neg, [
+    """__assert('config error rendered', !!document.querySelector('.config-error'), 'NO ERROR - spec was accepted');""",
+]))
+
 fails = sum(len(re.findall(r'^FAIL', r, re.M)) for r in results)
 passes = sum(len(re.findall(r'^PASS', r, re.M)) for r in results)
 print('=' * 72)

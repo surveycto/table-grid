@@ -144,6 +144,7 @@ function getTableParameters() {
     total: rawParams.total,
     totalLabel: safeGetPluginParameter('total_label', 'Total'),
     subtotalReferenceLabel: safeGetPluginParameter('subtotal_reference_label', 'Calculated'),
+    negativeTotalMessage: safeGetPluginParameter('negative_total_message', 'Below zero. Please check this figure.'),
     formatNumbers: rawParams.format_numbers === 'true',
     minValue: parseNumericOrNull(rawParams.min_value),
     maxValue: parseNumericOrNull(rawParams.max_value),
@@ -190,6 +191,19 @@ function getTableParameters() {
     params.subtotalConfig.errors.push(
       "total='row' adds a totals column on the right, which cannot be combined with subtotal groups. " +
       "Subtotals sum down rows, so use total='column' or remove the total parameter.")
+  }
+
+  // total='column' adds every line item, so with a subtracting row it would
+  // show a wrong but plausible figure. grid_total applies the signs.
+  if (params.subtotalConfig.configured && params.total === 'column') {
+    for (var sg = 0; sg < params.subtotalConfig.groups.length; sg++) {
+      if (params.subtotalConfig.groups[sg].subtracts) {
+        params.subtotalConfig.errors.push(
+          "total='column' adds every row, so it cannot be combined with rows that subtract. " +
+          "Remove the total parameter and give the grid a total row with grid_total instead, for example grid_total='4:3'.")
+        break
+      }
+    }
   }
 
   // Parsed after subtotals: N/A-ness propagates up through subtotal groups,
@@ -267,6 +281,24 @@ function parseStrictRowNumber(token) {
   return isNaN(n) ? null : n
 }
 
+/** Parse one "n" or "a-b" token into 0-based indices, or null. */
+function parseRowToken(token, rows) {
+  var out = []
+  var dash = token.indexOf('-')
+  if (dash > 0) {
+    var from = parseStrictRowNumber(token.slice(0, dash))
+    var to = parseStrictRowNumber(token.slice(dash + 1))
+    if (from === null || to === null) return null
+    if (from < 1 || to < 1 || from > rows || to > rows || to < from) return null
+    for (var r = from; r <= to; r++) out.push(r - 1)
+  } else {
+    var n = parseStrictRowNumber(token)
+    if (n === null || n < 1 || n > rows) return null
+    out.push(n - 1)
+  }
+  return out
+}
+
 function parseRowRefs(spec, rows) {
   if (spec === null || spec === undefined) return null
   var out = []
@@ -274,20 +306,39 @@ function parseRowRefs(spec, rows) {
   for (var i = 0; i < parts.length; i++) {
     var token = parts[i].trim()
     if (!token) return null
-    var dash = token.indexOf('-')
-    if (dash > 0) {
-      var from = parseStrictRowNumber(token.slice(0, dash))
-      var to = parseStrictRowNumber(token.slice(dash + 1))
-      if (from === null || to === null) return null
-      if (from < 1 || to < 1 || from > rows || to > rows || to < from) return null
-      for (var r = from; r <= to; r++) out.push(r - 1)
-    } else {
-      var n = parseStrictRowNumber(token)
-      if (n === null || n < 1 || n > rows) return null
-      out.push(n - 1)
-    }
+    var refs = parseRowToken(token, rows)
+    if (!refs) return null
+    out = out.concat(refs)
   }
   return out.length ? out : null
+}
+
+/**
+ * Like parseRowRefs, but a leading '-' marks rows that subtract:
+ * "1,-2" is row 1 minus row 2, and "1,-2-3" subtracts rows 2 and 3.
+ * Only the sum applies the sign; the respondent still types positive
+ * amounts. A range "a-b" never starts with '-', so the two can't collide.
+ * Returns { sources: [...], signs: [+1|-1, ...] } or null.
+ */
+function parseSignedRowRefs(spec, rows) {
+  var out = { sources: [], signs: [] }
+  var parts = String(spec).split(',')
+  for (var i = 0; i < parts.length; i++) {
+    var token = parts[i].trim()
+    var sign = 1
+    if (token.charAt(0) === '-') {
+      sign = -1
+      token = token.slice(1).trim()
+    }
+    if (!token) return null
+    var refs = parseRowToken(token, rows)
+    if (!refs) return null
+    for (var r = 0; r < refs.length; r++) {
+      out.sources.push(refs[r])
+      out.signs.push(sign)
+    }
+  }
+  return out.sources.length ? out : null
 }
 
 /** Parse one "<target>:<sources>" entry into 0-based indices, or null. */
@@ -296,9 +347,9 @@ function parseGroupEntry(entry, rows) {
   if (colon < 1) return null
   var target = parseStrictRowNumber(entry.slice(0, colon))
   if (target === null || target < 1 || target > rows) return null
-  var sources = parseRowRefs(entry.slice(colon + 1), rows)
-  if (!sources) return null
-  return { target: target - 1, sources: sources }
+  var refs = parseSignedRowRefs(entry.slice(colon + 1), rows)
+  if (!refs) return null
+  return { target: target - 1, sources: refs.sources, signs: refs.signs }
 }
 
 /**
@@ -331,7 +382,7 @@ function parseSubtotalConfig(subtotalsSpec, gridTotalSpec, rows) {
       var g = parseGroupEntry(raw, rows)
       if (!g) {
         model.errors.push('subtotals: could not read "' + raw +
-          '". Expected <subtotal row>:<rows it sums>, for example 3:1-2. Row numbers start at 1 and must be between 1 and ' + rows + '.')
+          '". Expected <subtotal row>:<rows it sums>, for example 3:1-2, or 3:1,-2 to subtract row 2. Row numbers start at 1 and must be between 1 and ' + rows + '.')
         continue
       }
       g.isTotal = false
@@ -347,7 +398,7 @@ function parseSubtotalConfig(subtotalsSpec, gridTotalSpec, rows) {
       var t = parseGroupEntry(traw, rows)
       if (!t) {
         model.errors.push('grid_total: could not read "' + traw +
-          '". Expected <total row>:<rows it sums>, for example 12:3,6,7. Row numbers start at 1 and must be between 1 and ' + rows + '.')
+          '". Expected <total row>:<rows it sums>, for example 12:3,6,7, or 12:3,6,-7 to subtract row 7. Row numbers start at 1 and must be between 1 and ' + rows + '.')
       } else {
         t.isTotal = true
         entries.push(t)
@@ -394,6 +445,23 @@ function parseSubtotalConfig(subtotalsSpec, gridTotalSpec, rows) {
     if (ok) {
       model.groups.push(e)
       model.targets[e.target] = e
+    }
+  }
+
+  // A group "subtracts" if it has a minus row, or sums a subtotal that does.
+  // Such a result can fall below zero even when every typed amount is
+  // positive, so it is exempt from min_value and flagged instead (see
+  // validationOptionsFor and updateNegativeFlag). Groups are in dependency
+  // order, so an inner subtotal is marked before the rows that use it.
+  for (var m = 0; m < model.groups.length; m++) {
+    var grp = model.groups[m]
+    grp.subtracts = false
+    for (var q = 0; q < grp.sources.length; q++) {
+      var inner = model.targets[grp.sources[q]]
+      if (grp.signs[q] < 0 || (inner && inner.subtracts)) {
+        grp.subtracts = true
+        break
+      }
     }
   }
 
@@ -499,12 +567,15 @@ function isGridTotalRow(params, rowIndex) {
  * Per-cell validation options. A subtotal is larger than the items it sums
  * by construction, so a max_value sized for a line item would reject it.
  * min_value still applies: if every component is above a floor, so is
- * their sum, and an overridden subtotal should respect it too.
+ * their sum, and an overridden subtotal should respect it too. The exception
+ * is a group that subtracts: there a result below the floor is legitimate,
+ * if unusual, so it is flagged by updateNegativeFlag rather than rejected.
  */
 function validationOptionsFor(params, input) {
   if (!input || !params.subtotalConfig || !params.subtotalConfig.configured) return null
   var row = parseInt(input.getAttribute('data-row'), 10)
-  return isSubtotalRow(params, row) ? { skipMax: true } : null
+  if (!isSubtotalRow(params, row)) return null
+  return { skipMax: true, skipMin: !!params.subtotalConfig.targets[row].subtracts }
 }
 
 function normalizePinnedHeaders(value) {
@@ -835,7 +906,8 @@ function validateNumericInput(value, params, useSoftMessages, opts) {
   }
 
   // Check range constraints with custom messages
-  if (params.minValue !== null && num < params.minValue) {
+  // opts.skipMin is set for subtotals that subtract (see validationOptionsFor).
+  if (!(opts && opts.skipMin) && params.minValue !== null && num < params.minValue) {
     var message = useSoftMessages ? params.constraintMessageMinSoft : params.constraintMessageMin
     var formattedMin = params.formatNumbers ? formatNumber(params.minValue, true) : params.minValue
     return {
@@ -1631,6 +1703,17 @@ function createCellContent(params, rowIndex, colIndex) {
     calcSpan.setAttribute('role', 'note')
     calcSpan.style.display = 'none'
     container.appendChild(calcSpan)
+
+    // Below-zero note for groups that subtract. Hidden until needed.
+    if (params.subtotalConfig.targets[rowIndex].subtracts) {
+      var negSpan = document.createElement('span')
+      negSpan.className = 'subtotal-negative'
+      negSpan.setAttribute('data-neg-row', rowIndex)
+      negSpan.setAttribute('data-neg-col', colIndex)
+      negSpan.setAttribute('role', 'note')
+      negSpan.style.display = 'none'
+      container.appendChild(negSpan)
+    }
   }
 
   return container
@@ -1669,7 +1752,7 @@ function createNaCellContent(params, container, rowIndex, colIndex) {
 // SUBTOTAL CALCULATION & OVERRIDE
 // ====================
 
-/** Sum a group's source rows for one column. Returns null if no source holds a number. */
+/** Sum a group's source rows (minus rows subtracted) for one column. Returns null if no source holds a number. */
 function calculateGroupSum(group, colIndex) {
   var sum = 0
   var hasValue = false
@@ -1678,7 +1761,7 @@ function calculateGroupSum(group, colIndex) {
     if (!src || !src.value || src.getAttribute('data-na') === 'true') continue
     var n = parseFloat(unformatNumber(src.value))
     if (!isNaN(n)) {
-      sum += n
+      sum += group.signs[s] * n
       hasValue = true
     }
   }
@@ -1730,6 +1813,7 @@ function applySubtotalCell(params, group, colIndex, calcValue) {
       caption.style.display = 'none'
     }
     setCellVariance(input, false)
+    updateNegativeFlag(params, group, colIndex, input)
     return
   }
 
@@ -1778,6 +1862,26 @@ function applySubtotalCell(params, group, colIndex, calcValue) {
   }
 
   setCellVariance(input, differs)
+  updateNegativeFlag(params, group, colIndex, input)
+}
+
+/**
+ * Flag a subtracting subtotal that has gone below zero, whether calculated
+ * or typed over. AHA asked for "allow it and flag it": a negative net is
+ * uncommon but can be genuine, so this is a note, never a blocker.
+ * Plain-addition groups are never flagged: there a negative total only
+ * comes from negative entries the form already chose to allow.
+ */
+function updateNegativeFlag(params, group, colIndex, input) {
+  if (!group.subtracts) return
+  var flag = document.querySelector('.subtotal-negative[data-neg-row="' + group.target + '"][data-neg-col="' + colIndex + '"]')
+  if (!flag) return
+  var n = parseFloat(unformatNumber(input.value))
+  var negative = !isNaN(n) && n < 0
+  flag.textContent = negative ? params.negativeTotalMessage : ''
+  flag.style.display = negative ? '' : 'none'
+  var cell = input.closest ? input.closest('td') : null
+  if (cell) cell.classList.toggle('subtotal-below-zero', negative)
 }
 
 /**
@@ -2767,7 +2871,10 @@ function clearAnswer() {
     enhancedInputs[i].removeAttribute('data-manual')
     enhancedInputs[i].removeAttribute('data-loaded-value')
     var clearedCell = enhancedInputs[i].closest ? enhancedInputs[i].closest('td') : null
-    if (clearedCell) clearedCell.classList.remove('subtotal-variance')
+    if (clearedCell) {
+      clearedCell.classList.remove('subtotal-variance')
+      clearedCell.classList.remove('subtotal-below-zero')
+    }
     // Clear any validation messages
     showValidationMessage(enhancedInputs[i], '', true)
   }
@@ -2778,6 +2885,12 @@ function clearAnswer() {
     captions[c].textContent = ''
     captions[c].removeAttribute('data-shown')
     captions[c].style.display = 'none'
+  }
+
+  var negFlags = document.querySelectorAll('.subtotal-negative')
+  for (var nf = 0; nf < negFlags.length; nf++) {
+    negFlags[nf].textContent = ''
+    negFlags[nf].style.display = 'none'
   }
 
   // Reset the read-only total cells rendered by total='row'/'column'
