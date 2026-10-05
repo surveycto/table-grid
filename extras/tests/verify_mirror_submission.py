@@ -7,7 +7,10 @@ saved table-grid answer against what was typed in the web-forms test run.
 
 Typed in that run: Medicaid a Gross 100, b Gross 50, c Net 57, d Net 3, and
 999 into the (N/A) c Gross cell, which must not have been accepted.
+Fixed assets (v2.3.0): Gross 1,250,000 and Less 1,400,000, so Net is the
+signed sum -150,000 and the deduction is saved positive, as typed.
 """
+import datetime
 import getpass
 import os
 import sys
@@ -24,7 +27,17 @@ client = SurveyCTOClient(server, username, password)
 subs = client.download_form_json_wide(FORM_ID)
 if not subs:
     sys.exit('No submissions found for %s.' % FORM_ID)
-latest = sorted(subs, key=lambda s: s.get('CompletionDate') or s.get('SubmissionDate') or '')[-1]
+def _when(sub):
+    # Dates arrive as text like 'Oct 5, 2026 11:45:05 AM'; sorting that text
+    # would put 9 AM after 11 AM, so compare parsed times.
+    raw = sub.get('CompletionDate') or sub.get('SubmissionDate') or ''
+    try:
+        return datetime.datetime.strptime(raw, '%b %d, %Y %I:%M:%S %p')
+    except ValueError:
+        return datetime.datetime.min
+
+
+latest = max(subs, key=_when)
 answer = latest.get('revenue_by_payer', '')
 print('Submission :', latest.get('KEY'), latest.get('SubmissionDate'))
 print('Answer     :', answer)
@@ -46,6 +59,12 @@ for i, want in sorted(expected.items()):
 checks.append(('untouched rows are blank', all(rows[i] == ',' for i in range(len(rows)) if i not in expected)))
 checks.append(('form engine read TOTAL as 150 / 60',
                str(latest.get('total_gross')) == '150' and str(latest.get('total_net')) == '60'))
+
+fa = latest.get('fixed_assets', '')
+print('Fixed assets:', fa, ' echo: gross=%r less=%r net=%r' % (
+    latest.get('fa_gross'), latest.get('fa_less'), latest.get('fa_net')))
+checks.append(('fixed assets saved as 1250000|1400000|-150000', fa == '1250000|1400000|-150000'))
+checks.append(('form engine read Net as -150000', str(latest.get('fa_net')) == '-150000'))
 
 for name, ok in checks:
     print(('PASS  ' if ok else 'FAIL  ') + name)

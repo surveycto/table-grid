@@ -266,6 +266,7 @@ custom-table-grid(
 )
 ```
 
+- Give the field SurveyCTO's native `required=yes`, as for any grid using `validation_strict`. A hard validation error clears the saved answer, so on an optional field the respondent could move on and the grid's values would be lost.
 - The form designer decides which rows subtract; the label (`Less: …`) is yours to word. A minus also works before a range (`4:1,-2-3` is row 1 minus rows 2 and 3) and in `subtotals`.
 - Respondents type the deduction as a **positive** amount, and it is **saved as typed**. Only the sum applies the sign, so the example above stores `1000000|400000|600000`. A negative typed into a subtracting row is not flipped: it is subtracted as a negative (so it adds), and `min_value=0` blocks it as usual.
 - A total that subtracts can legitimately fall below zero, so `min_value` does **not** apply to it (nor to a total built on one). Instead, a value below zero, calculated or typed over, shows a note under the cell (`negative_total_message`). Like an override mismatch, it is **a warning, never a blocker**. A total that only adds is never flagged, because there a negative can only come from negative entries the form already allows.

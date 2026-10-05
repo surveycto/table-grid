@@ -125,11 +125,18 @@ def render(params, steps, current='', appearance=''):
         'style': STYLE,
         'script': SCRIPT,
         'template': tpl,
-        'params': json.dumps(params),
-        'current': json.dumps(current),
-        'appearance': json.dumps(appearance),
-        'steps': json.dumps(steps),
+        'params': _js(params),
+        'current': _js(current),
+        'appearance': _js(appearance),
+        'steps': _js(steps),
     }
+
+
+def _js(value):
+    """JSON for an inline <script>. A literal '</script>' in a value (test 17
+    feeds one through row_labels) would otherwise close the harness's own
+    script tag and the steps would never run."""
+    return json.dumps(value).replace('</', '<\\/')
 
 
 def run(name, params, steps, current='', appearance=''):
@@ -137,12 +144,22 @@ def run(name, params, steps, current='', appearance=''):
         f.write(render(params, steps, current, appearance))
         path = f.name
     budget = 1200 + 700 * len(steps)
-    out = subprocess.run(
+    proc = subprocess.run(
         [CHROME, '--headless', '--disable-gpu', '--no-sandbox',
          '--virtual-time-budget=%d' % budget, '--dump-dom', 'file://' + path],
-        capture_output=True, text=True, timeout=180).stdout
-    m = re.search(r'<pre id="results">(.*?)</pre>', out, re.S)
-    body = html.unescape(m.group(1)).strip() if m else '(no results block)'
+        capture_output=True, text=True, timeout=180)
+    m = re.search(r'<pre id="results">(.*?)</pre>', proc.stdout, re.S)
+    body = html.unescape(m.group(1)).strip() if m else ''
+    # A browser that crashed or never ran the steps must not read as a pass:
+    # with no assertions there is nothing to fail, so say so explicitly.
+    if proc.returncode != 0:
+        body += '\nFAIL  browser exited with status %d: %s' % (
+            proc.returncode, (proc.stderr.strip().splitlines() or ['(no stderr)'])[-1])
+    if not m:
+        body += '\nFAIL  no results block in the page (steps never completed)'
+    elif not re.search(r'^(PASS|FAIL)', body, re.M):
+        body += '\nFAIL  no assertions executed'
+    body = body.strip()
     print('=' * 72)
     print(name)
     print('=' * 72)
