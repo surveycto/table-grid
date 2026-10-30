@@ -3835,8 +3835,18 @@ function setupCommonFeatures() {
   // that, once unEntity actually decoded entities, became an HTML
   // injection sink. Trust the template render and don't overwrite.
 
-  // Set initial focus if not readonly
-  if (fieldProperties && !fieldProperties.READONLY) {
+  // Set initial focus if not readonly.
+  //
+  // Not in web forms. There the host calls setFocus() itself when the
+  // field should take the cursor (as for SurveyCTO's own fields), and a
+  // plug-in that grabs it on every load misbehaves on a page redraw: web
+  // forms reloads every plug-in on the page when something on it depends
+  // on a value just typed, so with two grids on one page each reload
+  // yanked the caret out of the cell being typed in and selected the
+  // first cell of whichever grid finished loading last (EST-358, Oct 2026).
+  // Android/iOS Collect show one field per screen and don't reload it
+  // mid-typing, so the self-focus (and soft keyboard) stays there.
+  if (fieldProperties && !fieldProperties.READONLY && !isWebCollect) {
     setTimeout(setFocus, 100)
   }
 }

@@ -17,6 +17,13 @@ Variants (?v=):
                the history, no na_cells
     fixed-assets  3x1 Gross - Less = Net grid (grid_total='3:1,-2', v2.3.0)
 Add &top=N to push the plug-in further down the page (default 1 card above).
+
+Two grids on one page (EST-358 focus glitch, Oct 2026):
+    open http://localhost:8765/parent.html?two=1
+renders the AHA Budgets page (Q13 4x1 with a total, Q14 3x2) and a
+"Redraw page" button that reloads both plug-ins with their saved answers,
+as web forms does when something on the page depends on a value just typed.
+The probe shows which plug-in cell holds the cursor.
 """
 import html
 import json
@@ -35,6 +42,16 @@ IFR = 'https://cdnjs.cloudflare.com/ajax/libs/iframe-resizer/4.3.9/'
 VARIANTS = {
     'aha': ('Revenue by Payer both', aha_mirror.params(na_cells=True)),
     'aha-na': ('Revenue by Payer both', aha_mirror.params(na_cells=False, na_text='Field Not Required')),
+    'budget-13': ('13. Please indicate the percentage of your recently completed construction '
+                  'projects that corresponds to the following descriptions. Percentages must total 100%.', {
+        'rows': '4', 'cols': '1', 'col_labels': 'Percentage (%)',
+        'row_labels': 'On or under budget/on or ahead of schedule,On or under budget/behind schedule,'
+                      'Over budget/on or ahead of schedule,Over budget/behind schedule',
+        'total': 'column', 'total_label': 'Total (%)'}),
+    'budget-14': ('14. Approximately what percentage of your overall capital budget is allocated '
+                  'to construction projects?', {
+        'rows': '3', 'cols': '2', 'col_labels': '2026 actual %,2027 projected %',
+        'row_labels': 'New construction,Facility renovation,Facility infrastructure'}),
     'fixed-assets': ('Fixed assets', {
         'rows': '3', 'cols': '1', 'col_labels': 'Amount',
         'row_labels': 'Gross fixed assets,Less: accumulated depreciation,<b>Net fixed assets</b>',
@@ -49,13 +66,19 @@ CHILD = """<!doctype html>
 <body class="web-collect">
 <script>
 window.__answers = [];
-window.setAnswer = function (v) { window.__answers.push(v); };
+window.setAnswer = function (v) {
+  window.__answers.push(v);
+  try { window.parent.__saved[window.frameElement.id] = v; } catch (e) {}
+};
 window.__params = %(params)s;
 window.getPluginParameter = function (k) {
   return Object.prototype.hasOwnProperty.call(window.__params, k) ? window.__params[k] : null;
 };
 window.fieldProperties = {
-  CURRENT_ANSWER: '', LANGUAGE: 'default', READONLY: false, PARAMETERS: [],
+  CURRENT_ANSWER: (function () {
+    try { return window.parent.__saved[window.frameElement.id] || ''; } catch (e) { return ''; }
+  })(),
+  LANGUAGE: 'default', READONLY: false, PARAMETERS: [],
   LABEL: %(label_js)s, HINT: ''
 };
 window.goToNextField = function () {};
@@ -96,18 +119,42 @@ for (var i = 0; i < top; i++) {
   c.innerHTML = '<p><b>Question ' + (i + 1) + '</b></p><p>Some earlier field on the page.</p><input style="width:60%%">';
   main.appendChild(c);
 }
-var card = document.createElement('div'); card.className = 'card';
-card.innerHTML = '<iframe id="plugin" scrolling="no" src="child-' + v + '.html"></iframe>';
-main.appendChild(card);
+window.__saved = {};  // answers the plug-ins report, fed back on a redraw
+var children = q.get('two') ? ['budget-13', 'budget-14'] : [v];
+children.forEach(function (name, i) {
+  var card = document.createElement('div'); card.className = 'card';
+  var id = children.length > 1 ? 'plugin' + (i + 1) : 'plugin';
+  card.innerHTML = '<iframe id="' + id + '" scrolling="no" src="child-' + name + '.html"></iframe>';
+  main.appendChild(card);
+});
 var nav = document.createElement('nav');
-nav.innerHTML = '<button>Back</button><button>Next</button>';
+nav.innerHTML = '<button>Back</button>' +
+  (children.length > 1 ? '<button id="redraw">Redraw page</button>' : '') + '<button>Next</button>';
 main.appendChild(nav);
-iFrameResize({ checkOrigin: false, log: false }, '#plugin');
+iFrameResize({ checkOrigin: false, log: false }, 'iframe');
+// Web forms redraws the whole page when something on it depends on a value
+// just typed: every plug-in iframe reloads with its saved answer.
+window.__redraw = function () {
+  Array.prototype.forEach.call(document.querySelectorAll('iframe'), function (f) {
+    f.contentWindow.location.reload();
+  });
+};
+if (children.length > 1) document.getElementById('redraw').onclick = window.__redraw;
+// Which plug-in cell (if any) holds the cursor.
+window.__focus = function () {
+  var out = [];
+  Array.prototype.forEach.call(document.querySelectorAll('iframe'), function (f) {
+    var d = f.contentDocument;
+    var a = d && d.activeElement;
+    if (a && a.tagName === 'INPUT') out.push(f.id + ' r' + a.dataset.row + 'c' + a.dataset.col);
+  });
+  return out.length ? out.join(', ') : 'none';
+};
 
 // Probe: how much of the plug-in's content is hidden by the iframe edge.
 window.__probe = function () {
-  var f = document.getElementById('plugin');
-  var d = f.contentDocument;
+  var f = document.querySelector('iframe');
+  var d = f && f.contentDocument;
   if (!d) return null;
   var tc = d.getElementById('table-container');
   var r = tc ? tc.getBoundingClientRect() : null;
@@ -119,6 +166,7 @@ window.__probe = function () {
     containerMaxHeight: tc ? tc.style.maxHeight : null
   };
   out.clippedPx = out.containerBottom === null ? null : Math.max(0, out.containerBottom - out.iframeHeight);
+  out.focus = window.__focus();
   return out;
 };
 setInterval(function () {

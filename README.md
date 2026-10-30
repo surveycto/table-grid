@@ -112,6 +112,7 @@ For more information about developing your own field plug-ins, please read the [
 | media:audio | Yes |
 | media:video | Yes |
 | `numbers` appearance | Yes |
+| Focus on load | Android/iOS Collect: the cursor goes to the first open cell. Web forms: the form decides, as for SurveyCTO's own fields. The grid does not take the cursor when it loads there, so a page redraw (web forms reloads every plug-in on a page when something on it depends on a value just typed) with two or more grids no longer pulls the cursor out of the cell being typed in. |
 
 ### Parameters
 

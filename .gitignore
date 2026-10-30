@@ -9,3 +9,6 @@ Thumbs.db
 # Generated
 *.bak
 *.bak2
+
+# AHA customer files (EST-358 testing) - never commit
+extras/aha-section-e/
